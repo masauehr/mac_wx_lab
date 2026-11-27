@@ -177,6 +177,10 @@ def _unit(args):
             if w is not None and mode == "full":
                 Fc = dict(F)
                 Fc["rr"], Fc["rr_h"] = rr_for(mk, init, ft, w)
+                if Fc["rr"] is None:                              # 遅れて開始するネストの最初の時刻（降水の差が取れない）
+                    continue
+            elif w is not None and F.get("rr") is None:
+                continue
             if not chart_ok(chart, region, Fc):
                 continue
             for kind in maps:
@@ -291,7 +295,7 @@ def render_run(init, maps=("pale",), procs=6, progress=print, only=None):
     # 気圧面データのない時刻の、降水の時間幅違いの図（WRFの毎時・IFSの3時間間隔）
     for wk in [k for k in steps if fieldsF.is_wrf(k)]:
         if only is None or wk in only or "wrf" in only:
-            units += [(init, wk, ft, list(maps), "var") for ft in range(1, max(steps[wk]) + 1) if ft not in steps[wk]]
+            units += [(init, wk, ft, list(maps), "var") for ft in fieldsF.wrf_hours(init, wk) if ft not in steps[wk] and ft >= 1]
     if "ifs" in steps and (only is None or "ifs" in only):
         units += [(init, "ifs", ft, list(maps), "var") for ft in fieldsF.ecmwf_sfc3_steps("ifs", init)]
     if not units and only is None:

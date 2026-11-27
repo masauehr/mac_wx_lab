@@ -32,7 +32,8 @@ def main():
     ymd, hh = init[:8], init[8:]
     out = Path("data/gfs") / init
     out.mkdir(parents=True, exist_ok=True)
-    for f in range(0, hours + 1, step):
+    only = [int(x) for x in sys.argv[4].split(",")] if len(sys.argv) > 4 else None     # 4番目の引数: 取得する予報時間だけ（並列取得用）
+    for f in (only if only is not None else range(0, hours + 1, step)):
         dst = out / f"gfs.t{hh}z.pgrb2.0p25.f{f:03d}"
         if dst.exists():
             continue
@@ -44,10 +45,11 @@ def main():
             if WANT.search(l + ":") and "ave" not in l:
                 end = starts[i + 1] - 1 if i + 1 < len(lines) else ""
                 parts.append((starts[i], end))
-        with open(dst.with_suffix(".part"), "wb") as fo:
+        tmp = Path(str(dst) + ".part")          # 予報時間ごとに別の一時ファイル（並列取得でも衝突しない）
+        with open(tmp, "wb") as fo:
             for s, e in parts:
                 fo.write(get(url, f"{s}-{e}"))
-        dst.with_suffix(".part").rename(dst)
+        tmp.rename(dst)
         print(f"f{f:03d}: {len(parts)}レコード {dst.stat().st_size / 1e6:.0f}MB", flush=True)
 
 

@@ -86,6 +86,7 @@ def _wrf_levels_fields(init, ft, plev=None, zm=None, key="wrf"):
     """WRF: 指定の気圧面 / 海抜高度での場（規則格子）。key は対照 wrf または実験ケース x_<ID>_dNN"""
     w = fieldsF._wrf_ds(init, key)
     ds = w["ds"]
+    ft = ft - w["off"]                       # 初期時刻からの時間 → このファイルの時刻の番号
     G, R = 9.80665, 287.05
     p = ds["P"][ft] + ds["PB"][ft]
     tk = (ds["T"][ft] + 300.0) * (p / 1e5) ** 0.2854

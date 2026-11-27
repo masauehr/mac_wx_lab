@@ -201,19 +201,27 @@ def _wrf_ds(init, key="wrf"):
         from scipy.spatial import Delaunay
 
         tri = Delaunay(np.stack([lon.ravel(), lat.ravel()], axis=-1))
-        _WRF[k] = dict(ds=ds, lat=lat, lon=lon, glat=glat, glon=glon, tri=tri, times=len(ds["Times"]), deg=deg)
+        # ファイルの最初の時刻が、初期時刻から何時間後か（親より遅れて開始するネストは off>0）
+        from datetime import datetime as _dt
+        t0 = _dt.strptime("".join(c.decode() for c in ds["Times"][0]), "%Y-%m-%d_%H:%M:%S")
+        off = int(round((t0 - _dt.strptime(init, "%Y%m%d%H")).total_seconds() / 3600.0))
+        _WRF[k] = dict(ds=ds, lat=lat, lon=lon, glat=glat, glon=glon, tri=tri, times=len(ds["Times"]), deg=deg, off=off)
     return _WRF[k]
 
 
 def wrf_steps(init, key="wrf"):
     if key not in wrf_sources(init):
         return []
-    return list(range(0, _wrf_ds(init, key)["times"], 3))        # 3時間ごと
+    w = _wrf_ds(init, key)
+    return [ft for ft in range(w["off"], w["off"] + w["times"]) if ft % 3 == 0]        # 初期時刻から3時間ごと（遅れて開始するネストは開始以降）
 
 
 def wrf_hours(init, key="wrf"):
     """出力のある全時刻（毎時）"""
-    return list(range(0, _wrf_ds(init, key)["times"])) if key in wrf_sources(init) else []
+    if key not in wrf_sources(init):
+        return []
+    w = _wrf_ds(init, key)
+    return list(range(w["off"], w["off"] + w["times"]))
 
 
 def wrf_bbox(init, key="wrf"):
@@ -250,6 +258,7 @@ def _to_levels(var3d, logp, plev):
 def wrf_F(init, ft, rr_window=6, levels=None, key="wrf"):
     w = _wrf_ds(init, key)
     ds = w["ds"]
+    ft = ft - w["off"]                       # 初期時刻からの時間 → このファイルの時刻の番号
     G, R = 9.80665, 287.05
     p = ds["P"][ft] + ds["PB"][ft]                                         # Pa (nz, ny, nx)
     th = ds["T"][ft] + 300.0

@@ -36,6 +36,12 @@ PRESETS = [
     {"id": "nest1", "label": "1kmネスト（9→3→1km・沖縄本島周辺・6時間）", "cfg": {"label": "1kmネスト", "run_hours": 6, "domains": [
         {"dx": 9000, "n_we": 121, "n_sn": 101, "center": [26.0, 127.5]}, {"dx": 3000, "n_we": 151, "n_sn": 151, "center": [26.4, 127.9]},
         {"dx": 1000, "n_we": 181, "n_sn": 181, "center": [26.4, 127.9]}]}},
+    {"id": "ok0327", "label": "沖縄本島の雨を再現（27日03JST・7.5→1.5→0.5km・親を06UTCから・ネストは遅れて開始）", "init_hint": "2026112606", "cfg": {
+        "label": "沖縄0327 500m", "run_hours": 12, "history_interval": 60,
+        "domains": [{"dx": 7500, "n_we": 141, "n_sn": 121, "center": [26.0, 127.5]},
+                    {"dx": 1500, "n_we": 201, "n_sn": 201, "center": [26.4, 127.9], "start_h": 6},
+                    {"dx": 500, "n_we": 181, "n_sn": 181, "center": [26.5, 127.9], "start_h": 9}],
+        "physics": {"cu_physics": [1, 0, 0]}}},
     {"id": "nocu", "label": "対流パラメタリゼーションなし（9km）", "cfg": {"label": "積雲なし", "physics": {"cu_physics": 0}}},
     {"id": "noevap", "label": "地表蒸発なし（改造版WRF）", "cfg": {"label": "蒸発なし", "physics": {"qfx_scale": 0.0}}},
     {"id": "noflux", "label": "地表フラックスなし（顕熱・潜熱とも。標準WRF）", "cfg": {"label": "フラックスなし", "physics": {"isfflx": 0}}},
@@ -85,14 +91,20 @@ def layout(cfg):
     proj = pyproj.Proj(proj="lcc", lat_1=lat0, lat_2=lat0, lat_0=lat0, lon_0=lon0, R=6370000)
     out = []
     ratios = 1
+    hours = int(cfg.get("run_hours", 24))
     for i, d in enumerate(doms):
+        sh = int(d.get("start_h", 0))
+        if i == 0 and sh != 0:
+            raise ValueError("d01（親）は初期時刻から開始します（start_h は 0）")
+        if sh % 3 or sh < 0 or sh >= hours or (i and sh < int(doms[i - 1].get("start_h", 0))):
+            raise ValueError(f"d{i+1}: ネストの開始は、初期時刻から3の倍数の時間で、親の開始以降・予報時間より前にしてください（start_h={sh}）")
         dx, nw, ns = float(d["dx"]), int(d["n_we"]), int(d["n_sn"])
         if not (500 <= dx <= 60000):
             raise ValueError(f"d{i+1}: 格子間隔は 500〜60000m です")
         if nw < 25 or ns < 25 or nw > 1500 or ns > 1500:
             raise ValueError(f"d{i+1}: 格子数は 25〜1500 です")
         if i == 0:
-            out.append(dict(dx=dx, n_we=nw, n_sn=ns, ratio=1, parent=0, ips=1, jps=1,
+            out.append(dict(dx=dx, n_we=nw, n_sn=ns, ratio=1, parent=0, ips=1, jps=1, start_h=0,
                             x_w=-(nw - 1) * dx / 2, y_s=-(ns - 1) * dx / 2))
             continue
         par = out[i - 1]
@@ -108,7 +120,7 @@ def layout(cfg):
         kw, ks = (nw - 1) // ratio, (ns - 1) // ratio
         if ips < 6 or jps < 6 or ips + kw > par["n_we"] - 1 - 5 or jps + ks > par["n_sn"] - 1 - 5:
             raise ValueError(f"d{i+1}: 親領域の端に近すぎます（親の境界から5格子以上内側に置いてください）")
-        out.append(dict(dx=dx, n_we=nw, n_sn=ns, ratio=ratio, parent=i, ips=ips, jps=jps,
+        out.append(dict(dx=dx, n_we=nw, n_sn=ns, ratio=ratio, parent=i, ips=ips, jps=jps, start_h=sh,
                         x_w=par["x_w"] + (ips - 1) * par["dx"], y_s=par["y_s"] + (jps - 1) * par["dx"]))
         ratios *= ratio
     # 時間刻み: 親は 6×dx[km] 秒を、ネストの倍率の積の倍数に丸める（子は親の 1/倍率）
@@ -168,7 +180,7 @@ def estimate(cfg):
     pts = 0
     for d in dom:
         n = (d["n_we"] - 1) * (d["n_sn"] - 1)
-        steps = hours * 3600.0 / d["dt"]
+        steps = (hours - d.get("start_h", 0)) * 3600.0 / d["dt"]          # 遅れて開始するネストは、その分だけ短い
         eff = 1.0 if n > 10000 else 1.3                      # 実測の領域（約12,000点）で 21µs。これより小さいと並列効率が落ちる
         total += n * steps * US_PER_PT_STEP * 1e-6 * eff
         pts += n
@@ -200,7 +212,7 @@ def make_namelists(cfg, init, case_dir):
     wps = f"""&share
  wrf_core = 'ARW',
  max_dom = {nd},
- start_date = {_arr([t0.strftime("'%Y-%m-%d_%H:00:00'")] * nd)},
+ start_date = {_arr([(t0 + timedelta(hours=d["start_h"])).strftime("'%Y-%m-%d_%H:00:00'") for d in dom])},
  end_date   = {_arr([t1.strftime("'%Y-%m-%d_%H:00:00'")] * nd)},
  interval_seconds = 10800,
  io_form_geogrid = 2,
@@ -249,7 +261,7 @@ def make_namelists(cfg, init, case_dir):
     e_vert = int(P.get("e_vert", [45])[0]) if "e_vert" in P else 45
     ptop = int(P.get("p_top_requested", [5000])[0]) if "p_top_requested" in P else 5000
     hi = int(cfg.get("history_interval", 60))
-    st = lambda f: _arr([f(t0)] * nd)  # noqa: E731
+    st = lambda f: _arr([f(t0 + timedelta(hours=d["start_h"])) for d in dom])  # noqa: E731   領域ごとの開始時刻
     inp = f"""&time_control
  run_days = 0,
  run_hours = {hours},

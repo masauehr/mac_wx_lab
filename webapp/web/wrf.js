@@ -26,6 +26,7 @@ function renderDoms() {
       <label><span>格子間隔</span>${sel}</label>
       <label><span>格子数 東西</span><input type="number" data-k="n_we" data-i="${i}" value="${d.n_we}"></label>
       <label><span>南北</span><input type="number" data-k="n_sn" data-i="${i}" value="${d.n_sn}"></label>
+      ${i ? `<label title="初期時刻から何時間後にこのネストを開始するか（3の倍数）。親を先に走らせて、細かいネストはあとから始めるとスピンアップを取れる"><span>開始 h</span><input type="number" data-k="start_h" data-i="${i}" value="${d.start_h || 0}" step="3" min="0" style="width:64px"></label>` : ""}
       <label><span>中心 °N</span><input type="number" data-k="lat" data-i="${i}" value="${d.center[0]}" step="0.1"></label>
       <label><span>°E</span><input type="number" data-k="lon" data-i="${i}" value="${d.center[1]}" step="0.1"></label>
       <span class="note">${((d.n_we - 1) * d.dx / 1000).toFixed(0)}×${((d.n_sn - 1) * d.dx / 1000).toFixed(0)} km</span></div>`;
@@ -116,7 +117,7 @@ function cfgFromForm() {
   }
   return {
     id: $("cid").value.trim(), label: $("clabel").value.trim() || $("cid").value, run_hours: +$("hours").value, history_interval: +$("hint").value,
-    domains: doms.map((d) => ({ dx: d.dx, n_we: d.n_we, n_sn: d.n_sn, center: d.center })), physics,
+    domains: doms.map((d, i) => ({ dx: d.dx, n_we: d.n_we, n_sn: d.n_sn, center: d.center, ...(i ? { start_h: d.start_h || 0 } : {}) })), physics,
     terrain: ops.map((o) => { const c = { ...o }; if (c.bbox) c.bbox = c.bbox.map((x) => (x === "" ? NaN : x)); if (c.bbox && c.bbox.some((x) => Number.isNaN(x))) delete c.bbox; return c; }),
   };
 }
@@ -129,7 +130,7 @@ function defaultOf(k, d) {
 function loadCfg(c) {
   $("cid").value = c.id || "exp1"; $("clabel").value = c.label || c.id || "";
   $("hours").value = c.run_hours || 24; $("hint").value = c.history_interval || 60;
-  doms = (c.domains || OPT.default.domains).map((d) => ({ dx: d.dx, n_we: d.n_we, n_sn: d.n_sn, center: [...d.center] }));
+  doms = (c.domains || OPT.default.domains).map((d) => ({ dx: d.dx, n_we: d.n_we, n_sn: d.n_sn, center: [...d.center], start_h: d.start_h || 0 }));
   phys = {};
   for (const [k, v] of Object.entries(c.physics || {})) phys[k] = Array.isArray(v) ? v : [v];
   ops = (c.terrain || []).map((o) => ({ ...o }));
@@ -143,7 +144,7 @@ async function estimate() {
   try {
     const r = await api("/api/wrf_estimate", cfgFromForm());
     e.className = "";
-    const dom = r.domains.map((d, i) => `d${String(i + 1).padStart(2, "0")}: ${d.dx / 1000}km ${d.n_we}×${d.n_sn}、時間刻み ${d.dt}秒` + (i ? `（親の ${d.ips},${d.jps} から）` : "")).join("<br>");
+    const dom = r.domains.map((d, i) => `d${String(i + 1).padStart(2, "0")}: ${d.dx / 1000}km ${d.n_we}×${d.n_sn}、時間刻み ${d.dt}秒` + (i ? `（親の ${d.ips},${d.jps} から、開始 +${d.start_h || 0}h）` : "")).join("<br>");
     e.innerHTML = `<b>計算時間の目安: 約 ${r.minutes} 分</b>（6並列）　メモリ 約 ${r.memory_gb} GB<br>${dom}` +
       (r.patched ? `<br><span class="warn">改造版WRFを使います${OPT.patched_build ? "" : "（未ビルド）"}</span>` : "") +
       (r.needs_high_geog ? `<br><span class="warn">高解像度の地形データ（約2.8GB）が必要です${OPT.high_geog ? "（取得済み）" : "（初回に自動で取得）"}</span>` : "") +
@@ -186,7 +187,11 @@ async function main() {
   const have = (await api("/api/runs")).runs;
   $("init").innerHTML = [...new Set([...have, ...c.list])].sort().reverse().map((x) => `<option value="${x}">${fmtInit(x)}${have.includes(x) ? "（作図済み）" : ""}</option>`).join("");
   $("preset").innerHTML = `<option value="">（選択して読み込む）</option>` + OPT.presets.map((p, i) => `<option value="${i}">${p.label}</option>`).join("");
-  $("preset").onchange = () => { const v = $("preset").value; if (v === "") return; const p = OPT.presets[+v]; loadCfg({ ...OPT.default, ...p.cfg, id: p.id === "ctl" ? "ctl2" : p.id }); };
+  $("preset").onchange = () => {
+    const v = $("preset").value; if (v === "") return; const p = OPT.presets[+v];
+    loadCfg({ ...OPT.default, ...p.cfg, id: p.id === "ctl" ? "ctl2" : p.id });
+    if (p.init_hint && [...$("init").options].some((o) => o.value === p.init_hint)) $("init").value = p.init_hint;   // 推奨の初期時刻
+  };
   loadCfg({ ...OPT.default, id: "exp1", label: "実験1" });
   pollJob();
 }
