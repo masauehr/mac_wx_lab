@@ -40,6 +40,13 @@ for _f in ["Hiragino Sans", "Hiragino Kaku Gothic ProN", "AppleGothic", "Arial U
 plt.rcParams["axes.unicode_minus"] = False
 
 LABELS = {"wrf": "WRF 9km", "aifs": "AIFS（手元）", "aifs_off": "AIFS（公式）", "ifs": "IFS（ECMWF）"}
+
+
+def label_of(init, model):
+    """モデルの表示名（実験ケースは設定名つき）"""
+    if model in LABELS:
+        return LABELS[model]
+    return fieldsF.wrf_sources(init).get(model, {}).get("label", model)
 # 変数: (表示名, 単位, 既定の塗り色, 既定の刻み)
 VARS = {
     "t": ("気温", "℃", "RdYlBu_r", 2.0),
@@ -56,7 +63,7 @@ VARS = {
 }
 SFC_VARS = {
     "t2": ("2m気温", "℃", "RdYlBu_r", 2.0), "msl": ("海面気圧", "hPa", "viridis", 2.0),
-    "wspd10": ("10m風速", "m/s", "YlGnBu", 2.0), "rr": ("降水強度（直前6時間平均）", "mm/h", "Blues", None),
+    "wspd10": ("10m風速", "m/s", "YlGnBu", 2.0), "rr": ("降水強度（直前の平均）", "mm/h", "Blues", None),
     "tcc": ("全雲量", "%", "Greys", 10.0),
 }
 
@@ -75,9 +82,9 @@ def _interp_p(F, lev):
     return {k: F["p"][lo][k] * (1 - w) + F["p"][hi][k] * w for k in F["p"][lo]}, False
 
 
-def _wrf_levels_fields(init, ft, plev=None, zm=None):
-    """WRF: 指定の気圧面 / 海抜高度での場（0.1度の規則格子）"""
-    w = fieldsF._wrf_ds(init)
+def _wrf_levels_fields(init, ft, plev=None, zm=None, key="wrf"):
+    """WRF: 指定の気圧面 / 海抜高度での場（規則格子）。key は対照 wrf または実験ケース x_<ID>_dNN"""
+    w = fieldsF._wrf_ds(init, key)
     ds = w["ds"]
     G, R = 9.80665, 287.05
     p = ds["P"][ft] + ds["PB"][ft]
@@ -119,25 +126,29 @@ def _wrf_levels_fields(init, ft, plev=None, zm=None):
     return out, w["glat"], w["glon"]
 
 
-def get_fields(model, init, ft, level, unit):
+def get_fields(model, init, ft, level, unit, rr_window=6):
     """(場の辞書, lats, lons, 注記) を返す。level: 数値 または 'sfc'"""
     note = ""
     if level == "sfc":
-        F = fieldsF.wrf_F(init, ft) if model == "wrf" else fieldsF.aifs_local_F(init, ft) if model == "aifs" \
-            else fieldsF.ecmwf_F(model, init, ft)
+        if model in ("aifs", "aifs_off") and rr_window != 6:
+            raise ValueError("AIFS は6時間間隔の出力のため、降水は6時間平均のみです（RR3・RR1 は WRF・IFS で選べます）")
+        if model == "ifs" and rr_window not in (3, 6):
+            raise ValueError("IFS の降水は3時間・6時間平均です（RR1 は WRF のみ）")
+        F = fieldsF.wrf_F(init, ft, rr_window=rr_window, levels=[], key=model) if fieldsF.is_wrf(model) else fieldsF.aifs_local_F(init, ft) if model == "aifs" \
+            else fieldsF.ecmwf_F(model, init, ft, rr_window=rr_window, sfc_only=True)
         d = {"t2": F["t2"], "msl": F["msl"], "wspd10": np.hypot(F["u10"], F["v10"]), "tcc": F["tcc"],
              "u": F["u10"], "v": F["v10"]}
         if F.get("rr") is not None:
             d["rr"] = F["rr"]
         return d, F["lats"], F["lons"], note
     if unit == "m":
-        if model != "wrf":
+        if not fieldsF.is_wrf(model):
             raise ValueError("メートル高度は WRF だけで作れます（AIFS・IFS は等圧面のデータのみ）")
-        d, la, lo = _wrf_levels_fields(init, ft, zm=float(level))
+        d, la, lo = _wrf_levels_fields(init, ft, zm=float(level), key=model)
         return d, la, lo, f"海抜 {level:g}m（モデル面の高さで補間。地面がそれより高い所は空白）"
     lev = float(level)
-    if model == "wrf":
-        d, la, lo = _wrf_levels_fields(init, ft, plev=lev)
+    if fieldsF.is_wrf(model):
+        d, la, lo = _wrf_levels_fields(init, ft, plev=lev, key=model)
         return d, la, lo, "WRFのモデル面から気圧面へ補間（地面より下は空白）"
     F = fieldsF.aifs_local_F(init, ft) if model == "aifs" else fieldsF.ecmwf_F(model, init, ft)
     d, exact = _interp_p(F, int(lev) if lev == int(lev) else lev)
@@ -188,9 +199,72 @@ def _crop(a, lats, lons, bbox, pad=None):
 
 
 def render(p):
-    """p: dict(model, init, ft, level, unit, fill, contour, interval, fill_step, wind, bbox, basemap, cmap) → (png path, メモ)"""
+    """p: dict(kind=map|xsection|emagram, model, init, ft, …) → (png path, メモ)
+    map: 水平の図（level, unit, fill, contour, interval, fill_step, wind, bbox, basemap, cmap, rr_window）
+    xsection: 鉛直断面図（始点・終点 lat0,lon0,lat1,lon1、ptop、shade、contours、barbs、wind）
+    emagram: エマグラム（地点 lat,lon、ptop、pt=温位エマグラム）"""
     with LOCK:
+        k = p.get("kind") or "map"
+        if k == "xsection":
+            return _render_section(p)
+        if k == "emagram":
+            return _render_emagram(p)
         return _render(p)
+
+
+# ---------- 断面図・エマグラム（nwp_chart_web と同じ描画コードを使う） ----------
+XS_LEVELS = [1000, 975, 950, 925, 900, 875, 850, 800, 750, 700, 650, 600, 550, 500, 450, 400, 350, 300, 250, 200, 150, 100]
+
+
+def _F_for_profile(model, init, ft, points):
+    """断面・エマグラム用の F（WRFは22の気圧面へ補間。AIFS・IFSは提供の13面）。範囲外の点は ValueError"""
+    if fieldsF.is_wrf(model):
+        lon0, lon1, lat0, lat1 = fieldsF.wrf_bbox(init, model)
+        for la, lo in points:
+            if not (lat0 <= la <= lat1 and lon0 <= lo <= lon1):
+                raise ValueError(f"WRFの領域外です（{lon0:g}〜{lon1:g}°E・{lat0:g}〜{lat1:g}°N）。始点・終点・地点を領域内に指定してください")
+        return fieldsF.wrf_F(init, ft, levels=XS_LEVELS, key=model)
+    F = fieldsF.aifs_local_F(init, ft) if model == "aifs" else fieldsF.ecmwf_F(model, init, ft)
+    for la, lo in points:
+        if not (F["lats"][0] <= la <= F["lats"][-1] and F["lons"][0] <= lo % 360 <= F["lons"][-1]):
+            raise ValueError("データの範囲外です（東アジア広域: 50〜190°E・-10〜80°N）")
+    return F
+
+
+def _out_path(p):
+    key = hashlib.md5(json.dumps(p, sort_keys=True).encode()).hexdigest()[:12]
+    OUTDIR.mkdir(exist_ok=True)
+    return key, OUTDIR / f"{key}.png"
+
+
+def _render_section(p):
+    import xsection
+    model, init, ft = p["model"], p["init"], int(p["ft"])
+    a = (float(p["lat0"]), float(p["lon0"])); b = (float(p["lat1"]), float(p["lon1"]))
+    if a == b:
+        raise ValueError("始点と終点が同じです")
+    key, out = _out_path(p)
+    F = _F_for_profile(model, init, ft, [a, b])
+    opts = {"shade": p.get("shade") or "div", "contours": p.get("contours") or ["theta", "ept", "wind"],
+            "barbs": p.get("barbs") or "front", "ptop": xsection.parse_ptop(p.get("ptop"))}
+    xsection.render_xsection(F, datetime.strptime(init, "%Y%m%d%H"), ft, a, b, str(out), model=label_of(init, model),
+                             name=p.get("name", ""), quantize=False, wind=p.get("wind") or "uv", opts=opts)
+    note = "" if model == "wrf" else "AIFS・IFSの断面は提供13面（1000〜50hPa）の間を補間して描きます"
+    (OUTDIR / f"{key}.json").write_text(json.dumps({"params": p, "note": note}, ensure_ascii=False))
+    return out, note
+
+
+def _render_emagram(p):
+    import emagram
+    model, init, ft = p["model"], p["init"], int(p["ft"])
+    lat, lon = float(p["lat"]), float(p["lon"])
+    key, out = _out_path(p)
+    F = _F_for_profile(model, init, ft, [(lat, lon)])
+    emagram.render_emagram(F, datetime.strptime(init, "%Y%m%d%H"), ft, lat, lon, str(out), model=label_of(init, model),
+                           name=p.get("name", ""), quantize=False, ptop=int(p.get("ptop") or 100), pt=bool(p.get("pt")))
+    note = "最寄りの格子点のプロファイルです" + ("" if model == "wrf" else "（AIFS・IFSは提供13面。細かい層は log p で補間）")
+    (OUTDIR / f"{key}.json").write_text(json.dumps({"params": p, "note": note}, ensure_ascii=False))
+    return out, note
 
 
 def _render(p):
@@ -205,7 +279,7 @@ def _render(p):
     OUTDIR.mkdir(exist_ok=True)
     out = OUTDIR / f"{key}.png"
 
-    d, lats, lons, note = get_fields(model, init, ft, level, unit)
+    d, lats, lons, note = get_fields(model, init, ft, level, unit, int(p.get("rr_window") or 6))
     lev_hpa = float(level) if level != "sfc" and unit != "m" else 850.0
     svars = SFC_VARS if level == "sfc" else VARS
     fill_id, cont_id = p.get("fill") or None, p.get("contour") or None
@@ -312,7 +386,7 @@ def _render(p):
     lv_txt = "地上" if level == "sfc" else (f"海抜{level:g}m" if unit == "m" else f"{level:g}hPa")
     parts = [x for x in (f"塗り: {svars[fill_id][0]}" if fill_id else "", legend_items[0] if legend_items else "",
                          {"barbs": "風: 矢羽", "arrows": "風: 矢印"}.get(wind, "")) if x]
-    fig.text(0.07, 1 - 18 / (fig_h * 100), f"{LABELS[model]}　{lv_txt}　" + "　".join(parts), fontsize=12, weight="bold", va="center")
+    fig.text(0.07, 1 - 18 / (fig_h * 100), f"{label_of(init, model)}　{lv_txt}　" + "　".join(parts), fontsize=12, weight="bold", va="center")
     fig.text(0.07, 1 - 42 / (fig_h * 100),
              f"初期 {init_dt:%Y-%m-%d %H}UTC　+{ft:02d}h　有効 {vt:%m/%d %H}UTC（{jst:%d日%H時}JST）　{lon0:g}〜{lon1:g}E {lat0:g}〜{lat1:g}N",
              fontsize=9.5, color="#334", va="center")
@@ -325,6 +399,17 @@ def _render(p):
     (OUTDIR / f"{key}.json").write_text(json.dumps({"params": p, "note": "；".join(notes)}, ensure_ascii=False))
     return out, "；".join(notes)
 
+
+XS_PRESETS = [
+    {"name": "沖縄: 東西（26°N, 122.5〜132.3°E）", "p": [26, 122.5, 26, 132.3]}, {"name": "沖縄: 南北（127.5°E, 23〜29.5°N）", "p": [23, 127.5, 29.5, 127.5]},
+    {"name": "九州〜東シナ海（33°N 130°E → 28°N 124°E）", "p": [33, 130, 28, 124]},
+    {"name": "日本列島を横切る（東西 35°N, 128〜145°E）", "p": [35, 128, 35, 145]}, {"name": "南北（135°E, 20〜45°N）", "p": [20, 135, 45, 135]},
+]
+POINTS = [
+    {"name": "那覇", "lat": 26.2, "lon": 127.7}, {"name": "石垣島", "lat": 24.3, "lon": 124.2}, {"name": "南大東島", "lat": 25.8, "lon": 131.2},
+    {"name": "福岡", "lat": 33.6, "lon": 130.4}, {"name": "東京", "lat": 35.7, "lon": 139.7}, {"name": "札幌", "lat": 43.1, "lon": 141.3},
+    {"name": "台北", "lat": 25.0, "lon": 121.5}, {"name": "上海", "lat": 31.2, "lon": 121.5},
+]
 
 PRESETS = [
     {"name": "日本周辺", "bbox": [118, 152, 22, 50]}, {"name": "沖縄周辺", "bbox": [118, 138, 20, 34]},
@@ -347,13 +432,13 @@ def options():
         n = len(list((d / "aifs").glob(f"aifsfull_{init}_*.npz")))
         if n:
             models["aifs"] = {"label": LABELS["aifs"], "steps": [6 * (i + 1) for i in range(n)]}
-        if (d / "wrf" / "wrfout").exists():
-            models["wrf"] = {"label": LABELS["wrf"], "steps": list(range(0, 25))}
+        for key, src in fieldsF.wrf_sources(init).items():
+            models[key] = {"label": src["label"], "steps": fieldsF.wrf_hours(init, key)}
         if models:
             runs.append({"init": init, "models": models})
     return {"runs": runs, "vars": {k: {"label": v[0], "unit": v[1], "step": v[3]} for k, v in VARS.items()},
             "sfc_vars": {k: {"label": v[0], "unit": v[1], "step": v[3]} for k, v in SFC_VARS.items()},
-            "presets": PRESETS, "basemaps": bm.KINDS}
+            "presets": PRESETS, "basemaps": bm.KINDS, "xs_presets": XS_PRESETS, "points": POINTS}
 
 
 def history(n=24):
@@ -361,5 +446,59 @@ def history(n=24):
     for j in sorted(OUTDIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)[:n]:
         if j.with_suffix(".png").exists():
             d = json.loads(j.read_text())
-            items.append({"url": f"/custom_out/{j.stem}.png", "params": d["params"], "note": d.get("note", "")})
+            items.append({"url": f"/custom_out/{j.stem}.png", "key": j.stem, "params": d["params"], "note": d.get("note", ""),
+                          "published": j.stem in {x["key"] for x in load_published()}, "blocked": publish_blocked(d["params"])})
+    return items
+
+
+# ---------- 公開サイトのギャラリー（ローカルで選んだ図だけを公開する） ----------
+PUBLISH_LIST = HERE / "published_custom.json"
+GSI_KINDS = ("pale", "relief", "hillshade", "std")       # 国土地理院タイル（公開不可。NOTICE.md）
+
+
+def describe(p):
+    """図の説明文（ギャラリーの見出し）"""
+    init, model, ft = p["init"], p["model"], int(p["ft"])
+    head = f"{label_of(init, model)}　初期 {init[:4]}-{init[4:6]}-{init[6:8]} {init[8:]}UTC +{ft:02d}h　"
+    k = p.get("kind") or "map"
+    if k == "xsection":
+        return head + f"鉛直断面 ({p['lat0']}N,{p['lon0']}E)→({p['lat1']}N,{p['lon1']}E)　上端{p.get('ptop', 100)}hPa　色塗り:{p.get('shade', '')}"
+    if k == "emagram":
+        return head + f"{'温位エマグラム' if p.get('pt') else 'エマグラム'}　{p.get('name') or str(p['lat']) + 'N ' + str(p['lon']) + 'E'}"
+    lv = "地上" if p.get("level") in ("sfc", "", None) else (f"海抜{p['level']}m" if p.get("unit") == "m" else f"{p['level']}hPa")
+    sv = SFC_VARS if lv == "地上" else VARS
+    nm = lambda v: sv[v][0] if v in sv else ""  # noqa: E731
+    b = p["bbox"]
+    return head + f"{lv}　塗り:{nm(p.get('fill'))}　等値線:{nm(p.get('contour'))}　{b[0]}〜{b[1]}E {b[2]}〜{b[3]}N"
+
+
+def publish_blocked(p):
+    """公開してはいけない図の理由（国土地理院タイルを背景にした平面図）。なければ None"""
+    if (p.get("kind") or "map") == "map" and p.get("basemap", "pale") in GSI_KINDS:
+        return "国土地理院タイルを背景にした図は公開できません（加工画像の再配布の可否が未確認。NOTICE.md）。背景を「標高の陰影」か「なし」にして作り直してください"
+    return None
+
+
+def load_published():
+    try:
+        return json.loads(PUBLISH_LIST.read_text())
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def set_published(key, on):
+    import re as _re
+    if not _re.fullmatch(r"[0-9a-f]{12}", key or ""):
+        raise ValueError("不正なキーです")
+    meta = OUTDIR / f"{key}.json"
+    if not meta.exists() or not (OUTDIR / f"{key}.png").exists():
+        raise ValueError("その図は見つかりません")
+    items = [x for x in load_published() if x["key"] != key]
+    if on:
+        d = json.loads(meta.read_text())
+        why = publish_blocked(d["params"])
+        if why:
+            raise ValueError(why)
+        items.append({"key": key, "caption": describe(d["params"]), "note": d.get("note", "")})
+    PUBLISH_LIST.write_text(json.dumps(items, ensure_ascii=False, indent=1))
     return items

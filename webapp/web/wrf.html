@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WRF 実験設定 — Mac 数値予報ビューア</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  [hidden] { display:none !important; }
+  #layout { display:grid; grid-template-columns:minmax(560px,1fr) 380px; gap:14px; max-width:1400px; margin:0 auto; padding:12px 16px 30px; }
+  @media (max-width:1000px) { #layout { grid-template-columns:1fr; } }
+  fieldset { background:#fff; border:1px solid var(--line); border-radius:8px; margin:0 0 10px; padding:8px 12px 10px; min-width:0; }
+  legend { font-size:12px; color:#556; padding:0 4px; }
+  label { display:inline-flex; align-items:center; gap:5px; margin:3px 10px 3px 0; font-size:13px; }
+  label > span { font-size:12px; color:#445; }
+  input[type=number], input[type=text], select { font:inherit; padding:3px 6px; border:1px solid var(--line); border-radius:5px; }
+  input[type=number] { width:84px; }
+  .dom { border-top:1px dashed var(--line); padding-top:6px; margin-top:6px; }
+  .dom b { color:var(--accent); }
+  table.ph { border-collapse:collapse; width:100%; font-size:13px; }
+  table.ph td { padding:3px 6px; border-bottom:1px solid #eef0f4; vertical-align:middle; }
+  table.ph td:first-child { color:#334; white-space:nowrap; }
+  .op { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; border:1px solid var(--line); border-radius:6px; padding:4px 8px; margin:4px 0; background:#fafbfc; }
+  #est { font-size:13px; line-height:1.6; }
+  #est b { color:var(--accent); }
+  #est.err { color:#c0392b; font-weight:600; }
+  #jobBox { background:#1d2430; color:#cfe3ff; font:11px/1.4 ui-monospace,Menlo,monospace; padding:8px 10px; border-radius:6px; max-height:260px; overflow:auto; white-space:pre-wrap; }
+  .note { color:#556; font-size:12px; margin:4px 0; }
+  .warn { color:#b35c00; }
+  #stages li.running { color:#b35c00; font-weight:600; } #stages li.done { color:#1b7a3a; } #stages li.error { color:#c0392b; font-weight:600; } #stages li.skipped { color:#889; }
+  textarea { width:100%; height:200px; font:11px ui-monospace,Menlo,monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>WRF 実験設定</h1>
+  <a href="/">← 天気図ビューア</a>
+  <span style="color:#667;font-size:12px">領域・格子間隔・物理設定・地形を変えて WRF を実行します（ローカル専用）</span>
+</header>
+<div id="layout">
+  <main style="padding:0;max-width:none">
+    <fieldset><legend>実験</legend>
+      <label><span>プリセット</span><select id="preset"></select></label>
+      <label><span>実験ID</span><input type="text" id="cid" size="10" maxlength="16" value="exp1" title="英数字1〜16文字。結果のモデル名に使われます"></label>
+      <label><span>表示名</span><input type="text" id="clabel" size="22" value="実験1"></label><br>
+      <label><span>初期時刻</span><select id="init"></select></label>
+      <label><span>予報時間 h</span><input type="number" id="hours" value="24" min="1" max="72"></label>
+      <label><span>出力間隔 分</span><input type="number" id="hint" value="60" min="10" max="360"></label>
+    </fieldset>
+    <fieldset><legend>領域（親＋ネスト最大2つ。ランベルト図法。親の中心が基準）</legend>
+      <div id="doms"></div>
+      <button type="button" id="addDom">ネストを追加</button> <button type="button" id="delDom">最後のネストを削除</button>
+      <div class="note">格子数は「親の倍率の倍数＋1」（3倍なら 151・181・241 など）。ネストは親の端から5格子以上内側に置きます。1kmなどの細かい格子は計算が重くなります（右の見積りを参照）。</div>
+    </fieldset>
+    <fieldset><legend>物理設定（空欄・「既定」は変更しません）</legend>
+      <table class="ph" id="phys"></table>
+      <div class="note">【改造版WRF】の項目（蒸発・顕熱の係数）は、専用にビルドした改造版WRF（<span id="patchState">確認中</span>）を使います。
+        積雲パラメタは、格子間隔 8km 未満の領域では既定で「なし」です。</div>
+    </fieldset>
+    <fieldset><legend>地形・陸海の編集（geogrid の出力を編集してから実行します）</legend>
+      <div id="ops"></div>
+      <button type="button" data-op="scale">地形の倍率</button> <button type="button" data-op="set">標高を指定</button>
+      <button type="button" data-op="remove_land">陸を海にする</button> <button type="button" data-op="add_hill">山を追加</button>
+      <div class="note">範囲（西端・東端・南端・北端）を空欄にすると全域。ネスト領域にも同じ編集を適用します。「陸を海にする」は地形0m・陸海マスク・土地利用・土壌を水に変える近似です。</div>
+    </fieldset>
+    <fieldset><legend>設定（JSON）</legend>
+      <button type="button" id="showJson">フォームの内容を表示</button> <button type="button" id="loadJson">JSONをフォームに読み込む</button>
+      <textarea id="json" hidden></textarea>
+    </fieldset>
+  </main>
+  <aside>
+    <fieldset><legend>見積りと検査</legend>
+      <div id="est">設定を入力すると見積りが出ます。</div>
+    </fieldset>
+    <fieldset><legend>実行</legend>
+      <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0">
+        背景地図: <label><input type="checkbox" class="mp" value="terrain" checked>標高陰影</label>
+        <label><input type="checkbox" class="mp" value="pale">淡色地図</label>
+        <label><input type="checkbox" class="mp" value="relief">色別標高図</label>
+      </div>
+      <button id="run" class="primary" style="width:100%;padding:8px">この設定で実行</button>
+      <button id="cancel" hidden style="width:100%;margin-top:6px">中止</button>
+      <div id="runMsg" class="note"></div>
+      <ol id="stages"></ol>
+      <pre id="jobBox" hidden></pre>
+    </fieldset>
+  </aside>
+</div>
+<script src="wrf.js"></script>
+</body>
+</html>

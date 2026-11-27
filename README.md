@@ -2,7 +2,7 @@
 
 **公開サイト（閲覧専用）: <https://masauehr.github.io/mac_wx_lab/>**　／　ライセンス: MIT（[LICENSE](LICENSE)）、データ・モデルの出典は [NOTICE.md](NOTICE.md)
 
-詳しくは [mac-wx-lab.md](mac-wx-lab.md) を参照。
+詳しくは [mac-wx-lab.md](mac-wx-lab.md) を参照。**利用ガイド（モデル諸元・初期値/境界値・データ取得先・実行時間・使い方と画面例）は [docs/guide.md](docs/guide.md)**。
 
 MacBook（Apple M5 Pro・メモリ64GB）上で、**気象の物理モデル（数値予報モデル）** と **気象AIモデル** を実際に動かし、
 動作可否・所要時間・メモリ・結果の違いを記録する検証プロジェクト。
@@ -23,6 +23,7 @@ MacBook（Apple M5 Pro・メモリ64GB）上で、**気象の物理モデル（�
 | [mac-wx-lab.md](mac-wx-lab.md) | プロジェクト全体の計画・Phase・判断メモ |
 | [docs/candidates.md](docs/candidates.md) | 候補モデルの一覧と評価軸 |
 | `physics/` | WRFのビルド（`build_wrf.sh`）・理想実験の図（`plot_qss.py`）。WRF本体は git除外 |
+| ディスク | プロジェクト全体で約58GB（`physics/cases/` 28GB、`data/` 23GB など）。内訳と減らし方は [docs/guide.md](docs/guide.md) の第11章 |
 | `webapp/` | **ローカルWebアプリ**（`bash webapp/start.sh` → http://127.0.0.1:8795/）。計算の実行・nwp_chart と同じ13図種の天気図・背景地図（国土地理院タイル等）・2モデル比較・検証表・**任意作図**（高度と範囲を指定。`/custom.html`） |
 | [docs/phase3_log.md](docs/phase3_log.md) | Phase 3の比較結果とWebアプリの説明 |
 | [docs/phase2_log.md](docs/phase2_log.md) | Phase 2の作業ログ（WRFビルド・スーパーセル） |

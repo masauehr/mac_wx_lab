@@ -2,7 +2,7 @@
 // Mac 数値予報ビューア（WRF・AIFS・IFS）。画面構成は nwp_chart_web に合わせてある。
 const $ = (id) => document.getElementById(id);
 const STATIC = !!window.STATIC_SITE;   // 公開サイト（閲覧専用・APIなし）
-const MODEL_ORDER = ["wrf", "aifs", "aifs_off", "ifs"];
+let MODEL_ORDER = ["wrf", "aifs", "aifs_off", "ifs"];     // 実験ケースがあれば、索引の model_order で置き換える
 const st = { init: null, region: "wrf", model: "wrf", model2: "aifs", chart: "surf", map: "", ft: 6, cmp: false, playing: false, timer: null };
 let INDEX = null;       // 選択中の初期時刻の index.json
 let runs = [];
@@ -45,10 +45,12 @@ const imgUrl = (model, chart, ft) => {
 };
 
 function fillModelSelects() {
-  const ms = MODEL_ORDER.filter((m) => regionModels()[m]);
+  // モデルの選択肢は、地域によらず、その初期時刻にあるモデル全部。選んだモデルを勝手に変えない
+  // （その地域にデータが無いときは、画像なしと表示する）
+  const all = MODEL_ORDER.filter((m) => Object.values(INDEX.regions).some((r) => r.models[m]));
   for (const [sel, key] of [[$("modelSel"), "model"], [$("model2Sel"), "model2"]]) {
-    sel.innerHTML = ms.map((m) => `<option value="${m}">${INDEX.labels[m]}</option>`).join("");
-    if (!ms.includes(st[key])) st[key] = ms[key === "model" ? 0 : Math.min(1, ms.length - 1)] || "";
+    sel.innerHTML = all.map((m) => `<option value="${m}">${INDEX.labels[m]}</option>`).join("");
+    if (!all.includes(st[key])) st[key] = all[key === "model" ? 0 : Math.min(1, all.length - 1)] || "";
     sel.value = st[key];
   }
 }
@@ -165,13 +167,57 @@ async function refresh(keepFt) {
   if (!INDEX || INDEX.init !== st.init) INDEX = STATIC ? await (await fetch(`data/${st.init}/index.json`)).json() : await api(`/api/index/${st.init}`);
   if (!INDEX.regions[st.region]) st.region = Object.keys(INDEX.regions)[0];
   if (!(INDEX.maps || []).some((m) => m.id === st.map)) st.map = (INDEX.maps[0] || {}).id || "pale";
+  if (INDEX.model_order) MODEL_ORDER = INDEX.model_order;
   fillMaps(); fillRegions(); fillModelSelects();
   if (!INDEX.charts.some((c) => c.id === st.chart && hoursOf(st.model, c.id).length)) {
     const c = INDEX.charts.find((c) => hoursOf(st.model, c.id).length); if (c) st.chart = c.id;
   }
   fillTabs();
+  $("btnExp").hidden = !((INDEX.experiments || []).length);
   $("updated").textContent = `作図: ${INDEX.rendered_at ? INDEX.rendered_at.replace("T", " ").replace("+00:00", " UTC") : ""}`;
   render();
+}
+
+// ---------- WRF実験の設定（索引の experiments） ----------
+const PHYS_NAMES = { mp_physics: "雲物理", cu_physics: "積雲", bl_pbl_physics: "境界層", sf_sfclay_physics: "接地層", sf_surface_physics: "陸面", ra_lw_physics: "長波放射",
+  ra_sw_physics: "短波放射", isfflx: "地表フラックス(0=無効)", qfx_scale: "蒸発の係数", hfx_scale: "顕熱の係数", diff_opt: "拡散", km_opt: "乱流混合", radt: "放射間隔", cudt: "積雲間隔" };
+const OPNAMES = { scale: "地形の倍率", set: "標高を指定", remove_land: "陸を海にする", add_hill: "山を追加" };
+function showExp() {
+  const ex = (INDEX && INDEX.experiments) || [];
+  $("expBody").innerHTML = ex.map((e) => {
+    const c = e.cfg;
+    const doms = c.domains.map((d, i) => `d${String(i + 1).padStart(2, "0")}: ${d.dx / 1000}km ${d.n_we}×${d.n_sn}（中心 ${d.center[0]}°N ${d.center[1]}°E）`).join("<br>");
+    const ph = Object.entries(c.physics || {}).map(([k, v]) => `${PHYS_NAMES[k] || k} = ${Array.isArray(v) ? v.join(", ") : v}`).join("<br>") || "対照と同じ";
+    const tr = (c.terrain || []).map((o) => `${OPNAMES[o.type] || o.type} ${o.factor !== undefined ? "×" + o.factor : o.value !== undefined ? o.value + "m" : ""}${o.bbox ? "（" + o.bbox.join(", ") + "）" : ""}`).join("<br>") || "なし";
+    return `<h3>${e.label}（ID: ${e.id}）${e.patched ? "　<small>改造版WRF</small>" : ""}</h3><table class="exp"><tr><th>予報時間</th><td>${c.run_hours}時間</td></tr>
+      <tr><th>領域</th><td>${doms}</td></tr><tr><th>物理設定の変更</th><td>${ph}</td></tr><tr><th>地形の編集</th><td>${tr}${(e.terrain_notes || []).length ? "<br><small>" + e.terrain_notes.join(" / ") + "</small>" : ""}</td></tr></table>`;
+  }).join("") || "<p>この初期時刻にはWRF実験がありません。「WRF実験」から実行できます。</p>";
+  $("expDlg").showModal();
+}
+
+// ---------- 公開サイトへ反映（ローカルのみ） ----------
+let pubTimer = null;
+async function openPublish() {
+  const info = await api("/api/publish_info");
+  $("pubBody").innerHTML = `<table class="exp"><tr><th></th><th>初期時刻</th><th>容量</th><th>感度実験</th></tr>` + info.runs.map((r, i) =>
+    `<tr><td><input type="checkbox" class="pubInit" value="${r.init}" ${i < 3 && r.terrain ? "checked" : ""} ${r.terrain ? "" : "disabled"}></td><td>${fmtInit(r.init)}</td>
+      <td>${r.terrain ? r.mb + "MB" : "（標高陰影の図なし）"}</td><td>${r.experiments.join("、") || "－"}</td></tr>`).join("") +
+    `</table><p class="note">ギャラリー（任意作図）: <b>${info.gallery}枚</b>。目安として全体 ${info.limit_mb}MB 以下にしてください（GitHub Pages は約1GBまで）。</p><p id="pubSum" class="note"></p>`;
+  const upd = () => {
+    const mb = [...document.querySelectorAll(".pubInit:checked")].reduce((a, c) => a + (info.runs.find((r) => r.init === c.value).mb || 0), 0);
+    $("pubSum").innerHTML = `選択中の合計: 約 <b>${mb}MB</b>（感度実験の広域の図は載せないため、実際はこれより小さくなります）` + (mb > info.limit_mb ? " <b style='color:#c0392b'>— 多すぎます。初期時刻を減らしてください</b>" : "");
+  };
+  document.querySelectorAll(".pubInit").forEach((c) => (c.onchange = upd)); upd();
+  $("pubDlg").showModal();
+  pollPublish();
+}
+async function pollPublish() {
+  clearTimeout(pubTimer);
+  const s = await api("/api/publish_status").catch(() => ({ status: "none", log: [] }));
+  $("pubLog").hidden = !s.log.length; $("pubLog").textContent = s.log.join("\n");
+  $("pubMsg").textContent = { running: "反映中…", done: "反映しました（数分後にサイトへ反映されます）", error: "失敗しました（ログを確認）", none: "" }[s.status];
+  $("pubGo").disabled = s.status === "running";
+  if (s.status === "running") pubTimer = setTimeout(pollPublish, 2500);
 }
 
 // ---------- 検証表 ----------
@@ -201,12 +247,21 @@ function showStats() {
 }
 
 // ---------- 計算の実行 ----------
+// 日付を指定していればそれを、なければ候補の選択を使う
+function pickInit() {
+  const d = $("runDate").value;
+  return d ? d.replaceAll("-", "") + $("runHour").value : $("runInit").value;
+}
 let pollTimer = null;
 async function openRun() {
   const c = await api("/api/candidates");
   const sel = $("runInit");
   sel.innerHTML = c.list.map((x) => `<option value="${x}">${fmtInit(x)}${runs.includes(x) ? "（作図済み）" : ""}${x === c.latest ? "（最新）" : ""}</option>`).join("");
   sel.value = runs.includes(st.init) && c.list.includes(st.init) ? st.init : c.latest;
+  const mn = c.min || {};
+  const f = (x) => (x ? `${x.slice(0, 4)}-${x.slice(4, 6)}-${x.slice(6, 8)}` : "");
+  $("runRange").textContent = `過去の初期時刻も指定できます（00・06・12・18UTC）。取得できる期間: IFS・WRFの比較参照は ${f(mn.ifs)} 以降、公式AIFSは ${f(mn.aifs_off)} 以降、WRFのGFS初期値は ${f(mn.gfs)} 以降。AIFS（手元）は、入力に土壌の変数が要るため ${f(mn.aifs_local)} 以降。ECMWFの本家は直近約3日分のみで、それより前は自動でAWSのミラーから取得します。`;
+  $("runDate").min = f(mn.gfs); $("runDate").max = new Date().toISOString().slice(0, 10); $("runDate").value = "";
   $("runDlg").showModal();
   pollJob();
 }
@@ -253,14 +308,22 @@ async function main() {
   $("btnPlay").onclick = togglePlay; $("sizeSel").onchange = fitSize; addEventListener("resize", fitSize);
   $("speedSel").onchange = () => { if (st.playing) { togglePlay(); togglePlay(); } };
   $("btnRun").onclick = openRun; $("runClose").onclick = () => $("runDlg").close();
+  $("btnExp").onclick = showExp; $("expClose").onclick = () => $("expDlg").close();
+  $("btnPublish").onclick = openPublish; $("pubClose").onclick = () => $("pubDlg").close();
+  $("pubGo").onclick = async () => {
+    const inits = [...document.querySelectorAll(".pubInit:checked")].map((c) => c.value);
+    if (!inits.length) { $("pubMsg").textContent = "初期時刻を選んでください"; return; }
+    if (!confirm(`公開サイト（GitHub Pages）を更新します。\n初期時刻: ${inits.join(", ")}\nインターネットに公開されます。よろしいですか？`)) return;
+    try { await api("/api/publish", { inits }); pollPublish(); } catch (e) { $("pubMsg").textContent = "開始できません: " + e.message; }
+  };
   $("btnStats").onclick = showStats; $("statsClose").onclick = () => $("statsDlg").close();
   $("runGo").onclick = async () => {
     const models = [$("runAifs").checked && "aifs", $("runWrf").checked && "wrf"].filter(Boolean);
     const maps = [...document.querySelectorAll(".runMap:checked")].map((x) => x.value);
-    try { drawJob(await api("/api/run", { init: $("runInit").value, models, maps })); pollJob(); } catch (e) { $("runMsg").textContent = "開始できません: " + e.message; }
+    try { drawJob(await api("/api/run", { init: pickInit(), models, maps })); pollJob(); } catch (e) { $("runMsg").textContent = "開始できません: " + e.message; }
   };
   $("runRender").onclick = async () => {
-    try { drawJob(await api("/api/render", { init: $("runInit").value, maps: [...document.querySelectorAll(".runMap:checked")].map((x) => x.value) })); pollJob(); } catch (e) { $("runMsg").textContent = "開始できません: " + e.message; }
+    try { drawJob(await api("/api/render", { init: pickInit(), maps: [...document.querySelectorAll(".runMap:checked")].map((x) => x.value) })); pollJob(); } catch (e) { $("runMsg").textContent = "開始できません: " + e.message; }
   };
   $("runCancel").onclick = async () => { await api("/api/cancel", {}); pollJob(); };
   addEventListener("keydown", (e) => {
@@ -276,7 +339,7 @@ async function main() {
     e.preventDefault();
   });
   addEventListener("hashchange", () => location.reload());   // URLを貼り替えたときに状態を読み直す
-  if (STATIC) { $("lnkCustom").hidden = true; $("btnRun").hidden = true; $("jobMsg").hidden = true; document.body.classList.add("static"); }
+  if (STATIC) { $("btnPublish").hidden = true; $("lnkCustom").hidden = true; $("lnkWrf").hidden = true; $("btnRun").hidden = true; $("jobMsg").hidden = true; document.body.classList.add("static"); }
   await refresh();
   if (!STATIC) pollJob();   // 実行中のジョブがあれば状態を表示
 }

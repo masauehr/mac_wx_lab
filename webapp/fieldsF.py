@@ -66,6 +66,7 @@ def _read_grib(path):
 
 
 def ecmwf_steps(key, init):
+    """気圧面データがある予報時間（6時間ごと）"""
     base = ROOT / "data" / f"ref_{'ifs' if key == 'ifs' else 'aifs-single'}_{init}"
     if not (Path(str(base) + ".grib2").exists() and Path(str(base) + "_pl.grib2").exists()):
         return []
@@ -73,10 +74,21 @@ def ecmwf_steps(key, init):
     return sorted({s for (_, _, s) in d})
 
 
-def ecmwf_F(key, init, ft):
+def ecmwf_sfc3_steps(key, init):
+    """IFSの3時間ごとの地上量だけがある予報時間（降水RR3用）"""
+    f = ROOT / "data" / f"ref_ifs_{init}_sfc3.grib2"
+    if key != "ifs" or not f.exists():
+        return []
+    _, _, d = _read_grib(str(f))
+    return sorted({s for (_, _, s) in d})
+
+
+def ecmwf_F(key, init, ft, rr_window=6, sfc_only=False):
     base = str(ROOT / "data" / f"ref_{'ifs' if key == 'ifs' else 'aifs-single'}_{init}")
     lat, lon, sfc = _read_grib(base + ".grib2")
-    _, _, pl = _read_grib(base + "_pl.grib2")
+    if key == "ifs" and Path(base + "_sfc3.grib2").exists():          # 3時間ごとの地上量を足す
+        sfc = {**sfc, **_read_grib(base + "_sfc3.grib2")[2]}
+    pl = {} if sfc_only else _read_grib(base + "_pl.grib2")[2]
     tp_scale = 1000.0 if key == "ifs" else 1.0
     F = {"lats": lat, "lons": lon, "p": {}}
     F["msl"] = sfc[("msl", None, ft)] / 100.0
@@ -84,10 +96,10 @@ def ecmwf_F(key, init, ft):
     F["u10"], F["v10"] = sfc[("10u", None, ft)], sfc[("10v", None, ft)]
     F["t2"] = sfc[("2t", None, ft)] - 273.15
     F["tcc"] = sfc[("tcc", None, ft)] * (100.0 if sfc[("tcc", None, ft)].max() <= 1.5 else 1.0)
-    F["rr"], F["rr_h"] = None, 6
-    if ft >= 6:
-        prev = sfc[("tp", None, ft - 6)] if ("tp", None, ft - 6) in sfc else 0
-        F["rr"] = ((sfc[("tp", None, ft)] - prev) * tp_scale / 6.0).clip(min=0)
+    F["rr"], F["rr_h"] = None, rr_window
+    if ft >= rr_window and ("tp", None, ft) in sfc:
+        prev = sfc[("tp", None, ft - rr_window)] if ("tp", None, ft - rr_window) in sfc else 0
+        F["rr"] = ((sfc[("tp", None, ft)] - prev) * tp_scale / rr_window).clip(min=0)    # mm/h（直前 rr_window 時間の平均）
     for lv in LEVELS:
         try:
             z = {"gh": pl[("gh", lv, ft)], "t": pl[("t", lv, ft)] - 273.15, "u": pl[("u", lv, ft)], "v": pl[("v", lv, ft)]}
@@ -132,41 +144,79 @@ def aifs_local_F(init, ft):
     return _ascending(F)
 
 
-# ---------- WRF（気圧面へ鉛直補間し、0.1度の規則格子へ） ----------
+# ---------- WRF（気圧面へ鉛直補間し、規則格子へ）。対照実験と、実験ケース（領域・物理設定・地形を変えたもの）の全てを扱う ----------
 _WRF = {}
 WRF_LEVELS = LEVELS + [975, 950, 900, 800]
-WRF_GRID_DEG = 0.1
 
 
-def _wrf_ds(init):
+def is_wrf(key):
+    """モデルキーがWRF系か（wrf = 対照の9km。x_<ケース>_d0N = 実験ケースの領域N）"""
+    return key == "wrf" or key.startswith("x_")
+
+
+def grid_deg(dx):
+    """規則格子へ変換するときの間隔 [度]（WRFの格子間隔に合わせる）"""
+    return 0.1 if dx >= 8000 else 0.03 if dx >= 2500 else 0.01 if dx >= 900 else 0.005
+
+
+def wrf_sources(init):
+    """{モデルキー: {path, label, deg, dx, case, dom, cfg}}。対照 'wrf' と、runs/<初期時刻>/wrfx/<ケース>/ の各領域"""
+    import json
+
+    out = {}
+    ctl = ROOT / "runs" / init / "wrf" / "wrfout"
+    if ctl.exists():
+        out["wrf"] = dict(path=ctl, label="WRF 9km", deg=0.1, dx=9000, case="ctl", dom=1, cfg=None)
+    xdir = ROOT / "runs" / init / "wrfx"
+    for cj in sorted(xdir.glob("*/case.json")) if xdir.exists() else []:
+        cid = cj.parent.name
+        info = json.loads(cj.read_text())
+        cfg = info["cfg"]
+        for i, d in enumerate(cfg["domains"], 1):
+            f = cj.parent / f"wrfout_d{i:02d}"
+            if f.exists():
+                dx = float(d["dx"])
+                out[f"x_{cid}_d{i:02d}"] = dict(path=f, label=f"WRF {cfg.get('label', cid)} d{i:02d}（{dx / 1000:g}km）", deg=grid_deg(dx),
+                                                dx=dx, case=cid, dom=i, cfg=cfg)
+    return out
+
+
+def _wrf_ds(init, key="wrf"):
     import netCDF4 as nc
 
-    if init not in _WRF:
-        p = ROOT / "runs" / init / "wrf" / "wrfout"
-        ds = nc.Dataset(p)
+    k = (init, key)
+    if k not in _WRF:
+        src = wrf_sources(init)[key]
+        deg = src["deg"]
+        ds = nc.Dataset(src["path"])
         ds.set_auto_mask(False)                 # マスク配列にしない（補間で使うため）
         lat, lon = ds["XLAT"][0].astype(float), ds["XLONG"][0].astype(float)
-        # 領域に内接する矩形（0.1度刻み）
-        la0, la1 = np.ceil(lat[0, :].max() * 10) / 10 + 0.1, np.floor(lat[-1, :].min() * 10) / 10 - 0.1
-        lo0, lo1 = np.ceil(lon[:, 0].max() * 10) / 10 + 0.1, np.floor(lon[:, -1].min() * 10) / 10 - 0.1
-        glat = np.round(np.arange(la0, la1 + 1e-6, WRF_GRID_DEG), 3)
-        glon = np.round(np.arange(lo0, lo1 + 1e-6, WRF_GRID_DEG), 3)
+        # 領域に内接する矩形（deg刻み）
+        m = 1.0 * deg
+        la0, la1 = np.ceil(lat[0, :].max() / deg) * deg + m, np.floor(lat[-1, :].min() / deg) * deg - m
+        lo0, lo1 = np.ceil(lon[:, 0].max() / deg) * deg + m, np.floor(lon[:, -1].min() / deg) * deg - m
+        glat = np.round(np.arange(la0, la1 + 1e-6, deg), 4)
+        glon = np.round(np.arange(lo0, lo1 + 1e-6, deg), 4)
         from scipy.spatial import Delaunay
 
         tri = Delaunay(np.stack([lon.ravel(), lat.ravel()], axis=-1))
-        _WRF[init] = dict(ds=ds, lat=lat, lon=lon, glat=glat, glon=glon, tri=tri,
-                          times=len(ds["Times"]))
-    return _WRF[init]
+        _WRF[k] = dict(ds=ds, lat=lat, lon=lon, glat=glat, glon=glon, tri=tri, times=len(ds["Times"]), deg=deg)
+    return _WRF[k]
 
 
-def wrf_steps(init):
-    if not (ROOT / "runs" / init / "wrf" / "wrfout").exists():
+def wrf_steps(init, key="wrf"):
+    if key not in wrf_sources(init):
         return []
-    return list(range(0, _wrf_ds(init)["times"], 3))        # 3時間ごと
+    return list(range(0, _wrf_ds(init, key)["times"], 3))        # 3時間ごと
 
 
-def wrf_bbox(init):
-    w = _wrf_ds(init)
+def wrf_hours(init, key="wrf"):
+    """出力のある全時刻（毎時）"""
+    return list(range(0, _wrf_ds(init, key)["times"])) if key in wrf_sources(init) else []
+
+
+def wrf_bbox(init, key="wrf"):
+    w = _wrf_ds(init, key)
     return (float(w["glon"][0]), float(w["glon"][-1]), float(w["glat"][0]), float(w["glat"][-1]))
 
 
@@ -196,8 +246,8 @@ def _to_levels(var3d, logp, plev):
     return out
 
 
-def wrf_F(init, ft):
-    w = _wrf_ds(init)
+def wrf_F(init, ft, rr_window=6, levels=None, key="wrf"):
+    w = _wrf_ds(init, key)
     ds = w["ds"]
     G, R = 9.80665, 287.05
     p = ds["P"][ft] + ds["PB"][ft]                                         # Pa (nz, ny, nx)
@@ -215,6 +265,8 @@ def wrf_F(init, ft):
     omega = -(p / (R * tk)) * G * ww * 36.0                                  # hPa/h（上昇が負）
     logp = np.log(p)
     F = {"lats": w["glat"].copy(), "lons": w["glon"].copy(), "p": {}}
+    # データのある範囲（広い地域の図で、周りを空白にして、この枠を示す）
+    F["frame"] = (float(w["glon"][0]), float(w["glon"][-1]), float(w["glat"][0]), float(w["glat"][-1]))
     t2 = ds["T2"][ft]
     psfc = ds["PSFC"][ft]
     h = ds["HGT"][0]
@@ -227,11 +279,11 @@ def wrf_F(init, ft):
     cw = (ds["QCLOUD"][ft] + ds["QICE"][ft] + ds["QSNOW"][ft] if "QSNOW" in ds.variables else ds["QCLOUD"][ft] + ds["QICE"][ft])
     path = (cw * (p / (R * tk)) * np.gradient(z, axis=0)).sum(axis=0) * 1000.0      # g/m2
     F["tcc"] = _regrid(w, 100.0 * (1.0 - np.exp(-path / 20.0)))
-    window = 6 if ft >= 6 else max(ft, 1)
+    window = rr_window if ft >= rr_window else max(ft, 1)
     acc = lambda t: ds["RAINC"][t] + ds["RAINNC"][t]
     F["rr"] = None if ft == 0 else _regrid(w, ((acc(ft) - acc(ft - window)) / window).clip(min=0))
     F["rr_h"] = window
-    for lv in WRF_LEVELS:
+    for lv in (levels if levels is not None else WRF_LEVELS):
         F["p"][lv] = {"gh": _regrid(w, _to_levels(z, logp, lv)), "t": _regrid(w, _to_levels(tk, logp, lv) - 273.15),
                       "u": _regrid(w, _to_levels(ue, logp, lv)), "v": _regrid(w, _to_levels(ve, logp, lv)),
                       "r": _regrid(w, _to_levels(rh, logp, lv)), "w": _regrid(w, _to_levels(omega, logp, lv))}

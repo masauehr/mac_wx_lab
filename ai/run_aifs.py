@@ -47,11 +47,29 @@ LEVELS_PL = LEVELS
 OUT_FIELDS = ["2t", "msl", "10u", "10v", "tp"]  # 保存する出力変数
 
 
+def pick_source(date):
+    """本家（直近約3日）にあれば本家、無ければ AWS ミラー（IFS 0.25度は 2024-02-29 以降）"""
+    import urllib.request
+    ymd, hh = f"{date:%Y%m%d}", f"{date.hour:02d}"
+    url = f"https://data.ecmwf.int/forecasts/{ymd}/{hh}z/ifs/0p25/oper/{ymd}{hh}0000-0h-oper-fc.index"
+    try:
+        if urllib.request.urlopen(urllib.request.Request(url, method="HEAD"), timeout=20).status == 200:
+            return "ecmwf"
+    except Exception:  # noqa: BLE001
+        pass
+    if f"{date:%Y%m%d}" < "20241112":
+        raise SystemExit("AIFSの入力に要る土壌の変数（vsw・sot）は、ECMWFオープンデータでは 2024-11-12 以降のみです")
+    return "aws"
+
+
+SRC = "ecmwf"
+
+
 def get_open_data(date, param, levtype, levelist=()):
     """初期値（t-6h と t）を取得して N320 格子へ補間する"""
     fields = defaultdict(list)
     for d in [date - datetime.timedelta(hours=6), date]:
-        data = ekd.from_source("ecmwf-open-data", date=d, param=param, levtype=levtype, levelist=list(levelist))
+        data = ekd.from_source("ecmwf-open-data", source=SRC, date=d, param=param, levtype=levtype, levelist=list(levelist))
         for f in data:
             # オープンデータは経度 -180〜180 のため 0〜360 へずらす
             values = np.roll(f.to_numpy(), -f.shape[1] // 2, axis=1)
@@ -94,7 +112,9 @@ def main():
 
     t0 = time.time()
     date = datetime.datetime.strptime(os.environ["AIFS_DATE"], "%Y%m%d%H") if os.environ.get("AIFS_DATE") else OpendataClient().latest()
-    print("初期時刻:", date)
+    global SRC
+    SRC = pick_source(date - datetime.timedelta(hours=6))
+    print("初期時刻:", date, "取得元:", SRC)
     cache = Path("data") / f"aifs_input_{date:%Y%m%d%H}.npz"
     if cache.exists():  # 取得済みの初期値を再利用（取得に約4分かかるため）
         fields = dict(np.load(cache))

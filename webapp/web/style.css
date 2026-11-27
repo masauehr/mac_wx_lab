@@ -71,4 +71,6 @@ body.cmp #caveat { max-width:1800px; }
 .legal p { margin:4px 0; word-break:break-word; }
 footer a { color:var(--accent); }
 header a { color:var(--accent); }
+table.exp { border-collapse:collapse; font-size:12px; margin:4px 0 12px; } table.exp th, table.exp td { border:1px solid var(--line); padding:3px 8px; text-align:left; vertical-align:top; }
+#expBody h3 { font-size:14px; margin:10px 0 2px; }
 #chartTabs button:nth-last-child(-n+5) { border-style:dashed; }

@@ -22,6 +22,11 @@
   <label id="mapLbl" title="天気図の背景地図（国土地理院タイル等）">地図 <select id="mapSel"></select></label>
   <div id="regionBtns" class="seg" role="group" aria-label="地域"></div>
   <button id="btnRun" title="初期時刻を選んで、データ取得・AIFS・WRFを実行し、図を作ります">計算を実行</button>
+  <a id="lnkBoard" href="board/" title="複数の図を自由に並べる（画用紙版）">画用紙版</a>
+  <a id="lnkWrf" href="wrf.html" title="WRFの領域・格子・物理設定・地形を変えて実行する（ローカル専用）">WRF実験</a>
+  <button id="btnExp" hidden title="この初期時刻のWRF実験（領域・物理設定・地形編集）">実験の設定</button>
+  <a id="lnkGallery" href="gallery.html" title="任意作図で作った図のうち、公開に載せたもの">ギャラリー</a>
+  <button id="btnPublish" title="公開サイト（GitHub Pages）へ反映します">公開サイトへ反映</button>
   <a id="lnkCustom" href="custom.html" title="高度（気圧面・メートル）と表示範囲を指定して図を作る（ローカル専用）">任意作図</a>
   <button id="btnStats" title="IFSを参照にした検証の数値表">検証表</button>
   <span id="jobMsg"></span>
@@ -85,9 +90,11 @@
 <!-- 計算の実行 -->
 <dialog id="runDlg">
   <h2>計算の実行</h2>
+  <p class="note" id="runRange"></p>
   <p class="note">初期時刻を選び、必要なデータ取得 → 予報計算 → 作図まで順に行います。<b>済みの段階は自動でスキップ</b>します。計算中は他の重い作業を止めてください（AIFSがメモリ約55GBを使います）。</p>
   <div class="row">
     <label>初期時刻（UTC） <select id="runInit"></select></label>
+    <label>または日付を指定 <input type="date" id="runDate"> <select id="runHour"><option>00</option><option>06</option><option selected>12</option><option>18</option></select>UTC</label>
     <label><input type="checkbox" id="runAifs" checked> AIFS（CPU・約4〜8分）</label>
     <label><input type="checkbox" id="runWrf" checked> WRF 沖縄周辺9km（GFS取得 約35分＋計算 約10分）</label>
   </div>
@@ -106,6 +113,23 @@
   <ol id="stageList"></ol>
   <pre id="logBox"></pre>
   <div class="row"><button id="runClose">閉じる</button></div>
+</dialog>
+
+<!-- WRF実験の設定 -->
+<dialog id="expDlg">
+  <h2>WRF実験の設定</h2>
+  <p class="note">この初期時刻の感度実験です。結果は「モデル」に <b>WRF …</b> として並び、領域が対照と同じものは「実験−対照」の図があります。</p>
+  <div id="expBody"></div>
+  <div class="row"><button id="expClose">閉じる</button></div>
+</dialog>
+
+<!-- 公開サイトへ反映 -->
+<dialog id="pubDlg">
+  <h2>公開サイトへ反映</h2>
+  <p class="note"><b>GitHub Pages（インターネットに公開されるサイト）</b>を更新します。公開するのは作図済みの画像と索引だけで、背景は<b>標高の陰影</b>です（国土地理院タイルの背景は公開しません）。感度実験は、WRF領域と実験の領域の図だけを載せます（容量のため）。反映後は誰でも見られます。</p>
+  <div id="pubBody"></div>
+  <div class="row"><button id="pubGo" class="primary">この内容で反映する</button> <button id="pubClose">閉じる</button> <span id="pubMsg" class="note"></span></div>
+  <pre id="pubLog" hidden style="background:#1d2430;color:#cfe3ff;font:11px/1.4 ui-monospace,Menlo,monospace;padding:8px;border-radius:6px;max-height:160px;overflow:auto"></pre>
 </dialog>
 
 <!-- 検証表 -->

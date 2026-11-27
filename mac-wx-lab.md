@@ -46,3 +46,7 @@
 - **Phase 3（比較とWebアプリ）**: AIFS・公式AIFS・WRF を IFS 比で比較。**WRFの降水が過大**（領域平均 IFS比+35%・最大2倍。スピンアップの疑い）。計算の実行と表示ができるローカルWebアプリ（`bash webapp/start.sh` → http://127.0.0.1:8795/）と、閲覧専用の公開サイト（GitHub Pages: https://masauehr.github.io/mac_wx_lab/）。MITライセンス。データの規約確認（ECMWF=CC BY 4.0、NOAA GFS、WRF=パブリックドメイン、WPS_GEOGは条件の記載なし）は [mac-wx-lab-phase3.md](mac-wx-lab-phase3.md) と NOTICE.md。
 
 - **Phase 3 追補（2026-11-27）**: 天気図を nwp_chart_web と同じ13図種に揃え、背景地図（国土地理院タイル＝ローカルのみ、公開は GMTED の陰影起伏）と、高度・範囲を指定して作る**任意作図アプリ**（ローカル専用 `/custom.html`）を追加。国土地理院タイルの再配布は規約から判断できないため公開しない。詳細は [mac-wx-lab-phase3.md](mac-wx-lab-phase3.md)。
+
+- **利用ガイド**（モデル諸元・初期値/境界値・データ取得先・過去データ・実行時間・使い方と画面例）: [guide.md](guide.md)（プロジェクト内は `docs/guide.md`）。断面図・エマグラム・画用紙版・過去の初期時刻・降水RR1/RR3も追加（2026-11-27）。
+
+- **WRF 実験・公開機能（2026-11-27）**: 領域（親＋ネスト2つ・3km/1km/500m）・物理設定（積雲なし等）・地形編集・蒸発の係数（改造版WRF）を変えて実行する「WRF実験」（`/wrf.html`）、実験の差分図、感度実験・任意作図のギャラリーを公開サイトへ反映する機能。ディスク使用量は約 58GB（内訳は [guide.md](guide.md) の第11章）。AIFS（手元）の初期値は、土壌の変数が公開された 2024-11-12 以降のみ。

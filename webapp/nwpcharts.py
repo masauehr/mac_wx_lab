@@ -779,6 +779,11 @@ def render_chart(chart, region, F, init, ft, outpath, model="", quantize=True, b
 
     ctx = dict(ft=ft, title=chart)
     CHARTS[chart]["fn"](ax, V, F, ctx)
+    if F.get("frame"):                                   # 領域モデル（WRF）: データのある範囲の枠。周りはデータなし
+        lo0, lo1, la0, la1 = F["frame"]
+        bx = np.array([lo0, lo1, lo1, lo0, lo0]); by = np.array([la0, la0, la1, la1, la0])
+        xy = ax.projection.transform_points(PC, bx, by)
+        ax.plot(xy[:, 0], xy[:, 1], color="#d03030", linewidth=1.2, linestyle="--", zorder=6)
     if basemap != "none":                               # 色の塗りを透かして、下の地形を見せる
         for c in ax.collections:
             if getattr(c, "filled", False):

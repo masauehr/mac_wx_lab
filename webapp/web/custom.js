@@ -41,7 +41,7 @@ function fillVars() {
 }
 function updateUnit() {
   const u = $("unit").value, model = $("model").value;
-  $("levelRow").hidden = u === "sfc";
+  $("levelRow").hidden = u === "sfc"; $("rrRow").hidden = u !== "sfc";
   const q = $("quick");
   const lv = u === "m" ? [100, 500, 1000, 1500, 2000, 3000, 5000] : [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100];
   q.innerHTML = u === "sfc" ? "" : lv.map((v) => `<button type="button" data-v="${v}">${v}</button>`).join("");
@@ -54,25 +54,53 @@ function updateUnit() {
   fillVars();
 }
 function setBBox(b) { [$("lon0").value, $("lon1").value, $("lat0").value, $("lat1").value] = b; }
+function kindOf() { return $("kind").value; }
+function showKind() {
+  const k = kindOf();
+  document.querySelectorAll(".k-map").forEach((e) => (e.hidden = k !== "map"));
+  document.querySelectorAll(".k-xs").forEach((e) => (e.hidden = k !== "xsection"));
+  document.querySelectorAll(".k-em").forEach((e) => (e.hidden = k !== "emagram"));
+  if (k !== "map") { /* 断面・エマグラムの予報時間は同じ選択を使う */ }
+}
 function params() {
+  const k = kindOf();
+  if (k === "xsection") {
+    return { kind: k, init: $("init").value, model: $("model").value, ft: +$("ft").value,
+      lat0: $("xlat0").value, lon0: $("xlon0").value, lat1: $("xlat1").value, lon1: $("xlon1").value,
+      ptop: $("xptop").value, shade: $("xshade").value, contours: [...document.querySelectorAll(".xc:checked")].map((x) => x.value),
+      barbs: $("xbarbs").value, wind: $("xwind").value };
+  }
+  if (k === "emagram") {
+    const sel = $("emPoint").selectedOptions[0];
+    return { kind: k, init: $("init").value, model: $("model").value, ft: +$("ft").value,
+      lat: $("elat").value, lon: $("elon").value, ptop: $("emptop").value, pt: $("emPt").value === "1",
+      name: sel && sel.value !== "" ? sel.textContent : "" };
+  }
   const u = $("unit").value;
   return {
-    init: $("init").value, model: $("model").value, ft: +$("ft").value,
+    kind: "map", init: $("init").value, model: $("model").value, ft: +$("ft").value,
     unit: u === "sfc" ? "hPa" : u, level: u === "sfc" ? "sfc" : $("level").value,
-    fill: $("fill").value, fill_step: $("fill_step").value, cmap: $("cmap").value,
+    fill: $("fill").value, fill_step: $("fill_step").value, cmap: $("cmap").value, rr_window: $("rr_window").value,
     contour: $("contour").value, interval: $("interval").value, wind: $("wind").value,
     bbox: [$("lon0").value, $("lon1").value, $("lat0").value, $("lat1").value].map(Number), basemap: $("basemap").value,
   };
 }
 function restore(p) {
   if (!OPT.runs.find((r) => r.init === p.init)) return;
+  $("kind").value = p.kind || "map"; showKind();
   $("init").value = p.init; fillModels();
   if (runInfo().models[p.model]) { $("model").value = p.model; fillSteps(); }
   $("ft").value = p.ft;
   $("unit").value = p.level === "sfc" ? "sfc" : p.unit; updateUnit();
   if (p.level !== "sfc") $("level").value = p.level;
+  if (p.kind === "xsection") {
+    $("xlat0").value = p.lat0; $("xlon0").value = p.lon0; $("xlat1").value = p.lat1; $("xlon1").value = p.lon1;
+    $("xptop").value = p.ptop; $("xshade").value = p.shade; $("xbarbs").value = p.barbs; $("xwind").value = p.wind;
+    document.querySelectorAll(".xc").forEach((x) => (x.checked = (p.contours || []).includes(x.value))); return;
+  }
+  if (p.kind === "emagram") { $("elat").value = p.lat; $("elon").value = p.lon; $("emptop").value = p.ptop; $("emPt").value = p.pt ? "1" : "0"; return; }
   $("fill").value = p.fill || ""; $("contour").value = p.contour || ""; $("cmap").value = p.cmap || "";
-  $("fill_step").value = p.fill_step || ""; $("interval").value = p.interval || ""; $("wind").value = p.wind || "none";
+  $("rr_window").value = p.rr_window || "6"; $("fill_step").value = p.fill_step || ""; $("interval").value = p.interval || ""; $("wind").value = p.wind || "none";
   setBBox(p.bbox); $("basemap").value = p.basemap || "pale";
 }
 
@@ -84,6 +112,7 @@ async function go() {
     const p = params();
     const r = await api("/api/custom", p);
     $("result").innerHTML = `<img alt="図" src="${r.url}?t=${Date.now()}">`;
+    await showPub(r.url.split("/").pop().replace(".png", ""), p);
     $("note").textContent = r.note || "";
     $("save").hidden = false; $("save").href = r.url; $("save").download = r.url.split("/").pop();
     st.textContent = `完了（${((performance.now() - t0) / 1000).toFixed(1)}秒）`;
@@ -91,17 +120,29 @@ async function go() {
   } catch (e) { st.className = "err"; st.textContent = e.message; }
   btn.disabled = false;
 }
+// 「公開サイトのギャラリーに載せる」: 国土地理院タイルを背景にした平面図は選べない
+async function showPub(key, p, item) {
+  const it = item || (await api("/api/custom_history")).items.find((x) => x.key === key) || {};
+  $("pubRow").hidden = false; $("pubRow").dataset.key = key;
+  $("pubChk").checked = !!it.published; $("pubChk").disabled = !!it.blocked;
+  $("pubNote").textContent = it.blocked || "（公開リポジトリのサイトに載ります。「公開サイトへ反映」で更新）";
+}
+async function togglePub() {
+  const key = $("pubRow").dataset.key;
+  try { await api("/api/custom_publish", { key, on: $("pubChk").checked }); loadHistory(); }
+  catch (e) { $("pubChk").checked = !$("pubChk").checked; $("pubNote").textContent = e.message; }
+}
 async function loadHistory() {
   const h = (await api("/api/custom_history")).items;
   $("hist").innerHTML = h.map((it, i) => {
     const p = it.params;
-    const lv = p.level === "sfc" ? "地上" : p.unit === "m" ? p.level + "m" : p.level + "hPa";
-    return `<figure data-i="${i}"><img loading="lazy" src="${it.url}"><figcaption>${p.model} +${p.ft}h ${lv}</figcaption></figure>`;
+    const lv = p.kind === "xsection" ? "断面" : p.kind === "emagram" ? "エマグラム" : p.level === "sfc" ? "地上" : p.unit === "m" ? p.level + "m" : p.level + "hPa";
+    return `<figure data-i="${i}"><img loading="lazy" src="${it.url}"><figcaption>${it.published ? "★ " : ""}${p.model} +${p.ft}h ${lv}</figcaption></figure>`;
   }).join("");
   $("hist").querySelectorAll("figure").forEach((f) => (f.onclick = () => {
     const it = h[+f.dataset.i]; restore(it.params);
     $("result").innerHTML = `<img alt="図" src="${it.url}">`; $("note").textContent = it.note || "";
-    $("save").hidden = false; $("save").href = it.url;
+    $("save").hidden = false; $("save").href = it.url; showPub(it.key, it.params, it);
   }));
 }
 
@@ -112,6 +153,11 @@ async function main() {
   $("preset").innerHTML = opt("", "（選択）") + OPT.presets.map((p, i) => opt(i, p.name)).join("");
   $("basemap").innerHTML = Object.entries(OPT.basemaps).map(([k, v]) => opt(k, v)).join("");
   $("basemap").value = "pale";
+  $("kind").onchange = showKind; $("pubChk").onchange = togglePub;
+  $("xsPreset").innerHTML = opt("", "（選択）") + OPT.xs_presets.map((x, i) => opt(i, x.name)).join("");
+  $("xsPreset").onchange = () => { const v = $("xsPreset").value; if (v === "") return; const q = OPT.xs_presets[+v].p; [$("xlat0").value, $("xlon0").value, $("xlat1").value, $("xlon1").value] = q; };
+  $("emPoint").innerHTML = opt("", "（任意の緯度経度）") + OPT.points.map((x, i) => opt(i, x.name)).join("");
+  $("emPoint").onchange = () => { const v = $("emPoint").value; if (v === "") return; const q = OPT.points[+v]; $("elat").value = q.lat; $("elon").value = q.lon; };
   $("init").onchange = fillModels; $("model").onchange = () => { fillSteps(); };
   $("unit").onchange = updateUnit;
   $("preset").onchange = () => { if ($("preset").value !== "") setBBox(OPT.presets[+$("preset").value].bbox); };

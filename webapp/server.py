@@ -5,6 +5,7 @@
 """
 import json
 import mimetypes
+import subprocess
 import sys
 import threading
 import time
@@ -40,8 +41,70 @@ def candidates():
         latest = datetime.now(timezone.utc).replace(tzinfo=None, minute=0, second=0, microsecond=0) - timedelta(hours=18)
         latest = latest.replace(hour=latest.hour // 6 * 6)
     out = [(latest - timedelta(hours=6 * i)).strftime("%Y%m%d%H") for i in range(16)]
-    _cand.update(t=time.time(), v={"latest": latest.strftime("%Y%m%d%H"), "list": out})
+    _cand.update(t=time.time(), v={"latest": latest.strftime("%Y%m%d%H"), "list": out, "min": jobs.MIN_DATE})
     return _cand["v"]
+
+
+PUB = {"proc": None, "started": None, "inits": []}
+PUB_LOG = HERE / "logs" / "publish.log"
+
+
+def publish_info():
+    """公開の確認画面用: 初期時刻ごとの公開予定の容量（背景は標高の陰影）・ギャラリーの件数"""
+    import os
+    sys.path.insert(0, str(HERE))
+    import customchart
+    runs = []
+    for d in sorted(OUT.glob("*/index.json"), reverse=True):
+        init = d.parent.name
+        size = 0
+        for sub in ("terrain", "common"):
+            for root, _, files in os.walk(OUT / init / sub):
+                parts = Path(root).relative_to(OUT / init).parts
+                if sub != "common" and len(parts) >= 3 and parts[1] in ("japan", "okinawa", "asia") and parts[2].startswith("x_"):
+                    continue                                           # 感度実験の広域の図は公開しない（publish_static.py と同じ）
+                for f in files:
+                    size += os.path.getsize(os.path.join(root, f))
+        idx = json.loads(d.read_text())
+        has_terrain = (OUT / init / "terrain").exists()
+        exps = [e["label"] for e in idx.get("experiments", [])]
+        # 感度実験は広域の図を載せない分、小さくなる（概算: 実験モデルの広域を除く）
+        runs.append({"init": init, "mb": round(size / 1e6), "terrain": has_terrain, "experiments": exps})
+    pub = [x for x in customchart.load_published() if (HERE / "custom_out" / f"{x['key']}.png").exists()]
+    return {"runs": runs, "gallery": len(pub), "limit_mb": 900}
+
+
+def publish_start(inits):
+    if PUB["proc"] is not None and PUB["proc"].poll() is None:
+        raise RuntimeError("公開の処理が実行中です")
+    inits = [i for i in inits if jobs.INIT_RE.match(i) and (OUT / i / "index.json").exists()]
+    if not inits:
+        raise ValueError("公開する初期時刻を選んでください")
+    PUB_LOG.parent.mkdir(exist_ok=True)
+    lf = open(PUB_LOG, "w")
+    PUB["proc"] = subprocess.Popen([jobs.PY, "webapp/publish_static.py", *inits, "--maps", "terrain"], cwd=HERE.parent,
+                                   stdout=lf, stderr=subprocess.STDOUT, start_new_session=True)
+    PUB["started"], PUB["inits"] = time.time(), inits
+
+
+def publish_status():
+    p = PUB["proc"]
+    st = "none" if p is None else ("running" if p.poll() is None else ("done" if p.returncode == 0 else "error"))
+    log = PUB_LOG.read_text(errors="replace").splitlines()[-30:] if PUB_LOG.exists() else []
+    return {"status": st, "log": log, "inits": PUB["inits"]}
+
+
+def wrf_options():
+    """WRF実験の設定画面用: 物理設定の選択肢、プリセット、地形データ・改造版の有無"""
+    sys.path.insert(0, str(HERE.parent / "physics"))
+    import wrfcase
+    root = HERE.parent
+    return {
+        "phys": {k: {"label": v[0], "per_domain": v[1], "choices": ({str(a): b for a, b in v[2].items()} if v[2] else None)} for k, v in wrfcase.PHYS_OPTS.items()},
+        "presets": wrfcase.PRESETS, "default": wrfcase.DEFAULT_CFG,
+        "high_geog": (root / "data" / "geog_dl" / "WPS_GEOG").exists(),
+        "patched_build": (root / "physics" / "WRF_exp" / "main" / "wrf.exe").exists(),
+    }
 
 
 def runs_list():
@@ -80,6 +143,8 @@ class H(BaseHTTPRequestHandler):
 
     def _file(self, base, rel):
         p = (base / rel).resolve()
+        if p.is_dir() and (p / "index.html").is_file():          # /board/ などディレクトリは index.html を返す
+            p = p / "index.html"
         if base.resolve() not in p.parents and p != base.resolve():
             return self._send(403, {"error": "forbidden"})
         if not p.is_file():
@@ -107,6 +172,16 @@ class H(BaseHTTPRequestHandler):
         if path == "/api/flags":
             init = self.path.split("init=")[-1] if "init=" in self.path else ""
             return self._send(200, jobs.done_flags(init) if jobs.INIT_RE.match(init) else {})
+        if path == "/api/publish_info":
+            return self._send(200, publish_info())
+        if path == "/api/publish_status":
+            return self._send(200, publish_status())
+        if path == "/api/gallery":
+            import customchart
+            return self._send(200, [{"file": f"/custom_out/{x['key']}.png", "caption": x["caption"], "note": x.get("note", "")}
+                                    for x in customchart.load_published() if (HERE / "custom_out" / f"{x['key']}.png").exists()])
+        if path == "/api/wrf_options":
+            return self._send(200, wrf_options())
         if path == "/api/custom_options":
             import customchart
             return self._send(200, customchart.options())
@@ -132,9 +207,33 @@ class H(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             if path == "/api/run":
-                return self._send(200, jobs.start(str(body.get("init", "")), list(body.get("models", [])), list(body.get("maps", []))))
+                return self._send(200, jobs.start(str(body.get("init", "")), list(body.get("models", [])), list(body.get("maps", [])), body.get("wrf_cfg")))
             if path == "/api/render":
                 return self._send(200, jobs.start_render(str(body.get("init", "")), list(body.get("maps", []))))
+            if path == "/api/custom_publish":
+                import customchart
+                try:
+                    customchart.set_published(str(body.get("key", "")), bool(body.get("on")))
+                    return self._send(200, {"ok": True})
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
+            if path == "/api/publish":
+                try:
+                    publish_start(list(body.get("inits", [])))
+                    return self._send(200, publish_status())
+                except (ValueError, RuntimeError) as e:
+                    return self._send(409, {"error": str(e)})
+            if path == "/api/wrf_estimate":
+                try:
+                    sys.path.insert(0, str(HERE.parent / "physics"))
+                    import wrfcase
+                    cfg = wrfcase.load_cfg(body)
+                    dom, _ = wrfcase.layout(cfg)
+                    wrfcase.validate_physics(cfg, len(dom))
+                    return self._send(200, dict(wrfcase.estimate(cfg), patched=wrfcase.uses_patched(cfg),
+                                                needs_high_geog=any(float(d["dx"]) < 8000 for d in cfg["domains"])))
+                except (ValueError, KeyError, TypeError) as e:
+                    return self._send(400, {"error": str(e)})
             if path == "/api/custom":
                 import customchart
                 try:
