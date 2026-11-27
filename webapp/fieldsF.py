@@ -88,7 +88,12 @@ def ecmwf_F(key, init, ft, rr_window=6, sfc_only=False):
     lat, lon, sfc = _read_grib(base + ".grib2")
     if key == "ifs" and Path(base + "_sfc3.grib2").exists():          # 3時間ごとの地上量を足す
         sfc = {**sfc, **_read_grib(base + "_sfc3.grib2")[2]}
-    pl = {} if sfc_only else _read_grib(base + "_pl.grib2")[2]
+    pl = {} if sfc_only else dict(_read_grib(base + "_pl.grib2")[2])
+    plz = Path(base + "_plz.grib2")
+    if not sfc_only and plz.exists():                       # 公式AIFS（AWSミラーの2025年分）は高度が z（ジオポテンシャル）で別提供
+        for (pm, lv, st), a in _read_grib(str(plz))[2].items():
+            if pm == "z" and ("gh", lv, st) not in pl:
+                pl[("gh", lv, st)] = a / 9.80665              # ジオポテンシャル → ジオポテンシャル高度 [m]
     tp_scale = 1000.0 if key == "ifs" else 1.0
     F = {"lats": lat, "lons": lon, "p": {}}
     F["msl"] = sfc[("msl", None, ft)] / 100.0

@@ -11,6 +11,7 @@ truststore.inject_into_ssl()
 LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100, 50]
 SFC = ["msl", "2t", "10u", "10v", "tp", "tcc", "sp"]
 PL = {"ifs": ["gh", "t", "u", "v", "r", "w"], "aifs-single": ["gh", "t", "u", "v", "q", "w"]}
+PLZ = ["z"]      # 公式AIFS（AWSミラーの2025年分）は gh が無く、高度は z（ジオポテンシャル）。別ファイル _plz.grib2 に取得し、読み込み時に gh へ換算する
 
 
 # 公開期間（2026-11-27 に確認）: 本家 data.ecmwf.int は直近約3日。AWSミラーは IFS 0.25度が2024-02-29〜、AIFS が2025-02-26〜
@@ -57,6 +58,11 @@ def main():
         if not Path(base + "_pl.grib2").exists():
             fetch(c, base + "_pl.grib2", date=d, time=init.hour, step=steps, type="fc", param=PL[model],
                   levtype="pl", levelist=LEVELS)
+        if model == "aifs-single" and src == "aws" and not Path(base + "_plz.grib2").exists():     # 本家のデータには gh がある（ミラーの古い分だけ z）
+            try:
+                fetch(c, base + "_plz.grib2", date=d, time=init.hour, step=steps, type="fc", param=PLZ, levtype="pl", levelist=LEVELS)
+            except Exception as e:  # noqa: BLE001  zが無い日付でも、他のデータは使える
+                print("z（高度）は取得できませんでした:", str(e)[:80])
         if model == "ifs" and not Path(base + "_sfc3.grib2").exists():
             # IFSは3時間ごとにも出る。降水 RR3 用に、間の時刻（3・9・15・21h）の地上量を取る（AIFSは6時間間隔のみ）
             fetch(c, base + "_sfc3.grib2", date=d, time=init.hour, step=[3, 9, 15, 21], type="fc", param=SFC)
