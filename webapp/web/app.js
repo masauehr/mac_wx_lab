@@ -341,6 +341,7 @@ async function main() {
   addEventListener("hashchange", () => location.reload());   // URLを貼り替えたときに状態を読み直す
   if (STATIC) { $("btnPublish").hidden = true; $("lnkCustom").hidden = true; $("lnkWrf").hidden = true; $("btnRun").hidden = true; $("jobMsg").hidden = true; document.body.classList.add("static"); }
   await refresh();
-  if (!STATIC) pollJob();   // 実行中のジョブがあれば状態を表示
+  if (!STATIC) pollJob();
+  if (!STATIC && new URLSearchParams(location.search).get("publish") === "1") openPublish();   // 任意作図からの「公開サイトへ反映する…」   // 実行中のジョブがあれば状態を表示
 }
 main();
