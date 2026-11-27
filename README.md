@@ -6,7 +6,7 @@ MacBook（Apple M5 Pro・メモリ64GB）上で、**気象の物理モデル（�
 動作可否・所要時間・メモリ・結果の違いを記録する検証プロジェクト。
 
 - **公開範囲**: public（モデルの重み・入力データ・出力はコミットしない）
-- **状態**: 2026-11-27 新規作成・Phase 0〜1完了（AIFSをMacのCPUで24h予報・公式と一致）
+- **状態**: 2026-11-27 新規作成・Phase 0〜1完了（AIFSをMacのCPUで24h予報・公式と一致）、Phase 2は理想実験まで完了（WRFスーパーセル）
 
 ## 目的
 
@@ -20,7 +20,8 @@ MacBook（Apple M5 Pro・メモリ64GB）上で、**気象の物理モデル（�
 |---|---|
 | [mac-wx-lab.md](mac-wx-lab.md) | プロジェクト全体の計画・Phase・判断メモ |
 | [docs/candidates.md](docs/candidates.md) | 候補モデルの一覧と評価軸 |
-| `physics/` | 物理モデルの作業置き場（作成時に追加） |
+| `physics/` | WRFのビルド（`build_wrf.sh`）・理想実験の図（`plot_qss.py`）。WRF本体は git除外 |
+| [docs/phase2_log.md](docs/phase2_log.md) | Phase 2の作業ログ（WRFビルド・スーパーセル） |
 | `ai/` | AIFS実行（`run_aifs.py`）・公式との比較（`compare_official.py`）・プロット・flash_attn代替スタブ |
 | [docs/phase1_log.md](docs/phase1_log.md) | Phase 1の作業ログ・結果・つまずき |
 | `data/` `models/` `outputs/` | 大容量・再取得可能。git除外 |

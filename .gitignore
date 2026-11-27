@@ -16,3 +16,7 @@ outputs/
 
 # 認証情報
 .env
+.conda/
+build/
+physics/WRF/
+physics/WPS/
