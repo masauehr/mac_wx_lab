@@ -58,6 +58,18 @@ def experiments_info(init):
     return out
 
 
+def img_label(mk):
+    """図に書く名前（図の文字は日本語が出ないフォントなので、実験は英数字にする）"""
+    src = fieldsF.wrf_sources(INIT_CTX[0]).get(mk) if INIT_CTX else None
+    if src and mk != "wrf":
+        d = src["cfg"]["domains"][src["dom"] - 1]
+        return f"WRF {src['case']} d{src['dom']:02d} ({float(d['dx']) / 1000:g}km)"
+    return LABELS.get(mk, mk)
+
+
+INIT_CTX = []
+
+
 def region_key(model):
     return "r_" + model[2:]                                  # x_<ID>_dNN → r_<ID>_dNN
 
@@ -156,6 +168,7 @@ def _unit(args):
     """1つの(モデル, 予報時間)について、全地域・全図種・全背景地図を描く（Fを1回だけ作る）。
     mode='var' は、気圧面データのない時刻（WRFの毎時・IFSの3時間間隔）の降水の時間幅違いの図だけ"""
     init, mk, ft, maps, mode = args
+    INIT_CTX[:] = [init]
     models_of(init)                                          # ラベル登録
     register_regions(init)                                   # 実験ケースの領域（各プロセスで必要）
     init_dt = datetime.strptime(init, "%Y%m%d%H")
@@ -187,7 +200,7 @@ def _unit(args):
                 p = OUT / init / kind / region / mk / chart / f"f{ft:03d}.png"
                 p.parent.mkdir(parents=True, exist_ok=True)
                 try:
-                    nc.render_chart(chart, region, Fc, init_dt, ft, str(p), model=LABELS[mk], quantize=True, basemap=kind)
+                    nc.render_chart(chart, region, Fc, init_dt, ft, str(p), model=img_label(mk), quantize=True, basemap=kind)
                 except Exception as e:  # noqa: BLE001  1枚の失敗で全体を止めない
                     print(f"[失敗] {mk} {region} {chart} f{ft:03d} {kind}: {e}", flush=True)
                     continue

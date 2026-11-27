@@ -482,7 +482,15 @@ def run(cfg, init, procs=6, log=print):
     _run(["mpirun", "-np", "1", "./real.exe"], case, log, env, "初期値・境界値の作成")
     est = estimate(cfg)
     log(f"WRF を実行（見積り {est['minutes']} 分）")
-    _run(["mpirun", "-np", str(procs), "./wrf.exe"], case, log, env, "予報計算")
+    try:
+        _run(["mpirun", "-np", str(procs), "./wrf.exe"], case, log, env, "予報計算")
+    except RuntimeError as e:
+        # mpirun が終了時に強制終了の信号（143など）で終わることがある。計算が最後まで成功していれば続行する
+        rsl = case / "rsl.out.0000"
+        if rsl.exists() and "SUCCESS COMPLETE WRF" in rsl.read_text(errors="replace")[-400:]:
+            log("mpirun は異常終了コードでしたが、WRF は最後まで成功しています（SUCCESS COMPLETE WRF）。続行します")
+        else:
+            raise
     out = ROOT / "runs" / init / "wrfx" / cid
     out.mkdir(parents=True, exist_ok=True)
     for i in range(1, nd + 1):
