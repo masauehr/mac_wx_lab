@@ -20,3 +20,24 @@ outputs/
 build/
 physics/WRF/
 physics/WPS/
+
+# WRF実事例の生成物（namelistとスクリプトだけ管理）
+physics/cases/*/GFS:*
+physics/cases/*/GRIBFILE.*
+physics/cases/*/geo_em*
+physics/cases/*/met_em*
+physics/cases/*/wrfinput*
+physics/cases/*/wrfbdy*
+physics/cases/*/wrfout*
+physics/cases/*/wrfrst*
+physics/cases/*/rsl.*
+physics/cases/*/*.log
+physics/cases/*/*.exe
+physics/cases/*/geogrid
+physics/cases/*/metgrid
+physics/cases/*/Vtable
+physics/cases/*/*.TBL
+physics/cases/*/*_DATA*
+physics/cases/*/ozone*
+physics/cases/*/CAM*
+physics/WPS/

@@ -46,3 +46,50 @@ namelist は 実行時間 2時間・出力間隔10分に変更（既定は60分�
 
 - 実事例: WPS のビルド、初期値・境界値（GFS 0.25° など無料）の取得、沖縄周辺の小領域で台風・大雨を数値予報
 - Phase 3 で同じ事例のAIFS予報と比較する
+
+---
+
+# 実事例: 沖縄周辺 9km・GFS初期値・24時間予報（2026-11-27）
+
+## 結論
+
+**WPS → real → WRF の一連が Mac で通り、24時間予報が約417秒（6プロセス）で完走**。領域は沖縄周辺（121×101格子・9km・45層、北緯22〜30度・東経122〜133度）、初期値は GFS 0.25° の 2026-11-26 18UTC。ただし**降水が予報開始後6時間で最大約200mm出ており、スピンアップ（初期の過大）の疑いがある**。Phase 3 で GFS・AIFS と比較して確かめる。
+
+## 手順（スクリプト）
+
+| ステップ | ファイル |
+|---|---|
+| WRF ビルド | [physics/build_wrf.sh](../physics/build_wrf.sh)（理想実験用）。実事例は `./compile -j 8 em_real` も必要（`./clean` してから） |
+| 静的地形データ（低解像度・約150MB） | [physics/fetch_geog.py](../physics/fetch_geog.py) |
+| GFS の取得（必要な変数だけ・約130MB×9ファイル、約35分） | [physics/fetch_gfs.py](../physics/fetch_gfs.py) |
+| 前処理〜実行 | [physics/run_case.sh](../physics/run_case.sh)、設定は `physics/cases/okinawa_20261126/namelist.{wps,input}` |
+| 図 | [physics/plot_okinawa.py](../physics/plot_okinawa.py) |
+
+主な設定: 物理は WSM6（雲物理）・RRTMG（放射）・YSU（境界層）・Kain-Fritsch（積雲）・Noah（地表）。`geog_data_res='lowres'`（5分≒9km）。時間刻み54秒、出力1時間間隔。
+
+## つまずきと対処
+
+| 現象 | 原因 | 対処 |
+|---|---|---|
+| WPS configure の選択肢 | arm64 の項目なし | 「Darwin Intel gfortran/clang (serial)」（21番）でよい。`echo 0 \|` で空回りするので番号を直接渡す |
+| geogrid 等のリンク失敗 `_nf_*` | netCDF-Fortran 未指定 | `configure.wps` の `-lnetcdf` を `-lnetcdff -lnetcdf` に |
+| ungrib のリンク失敗 `_jpc_decode` | 同梱のGRIB2ライブラリが古いJasPer API を呼ぶ | JPEG2000 を使わない GFS 用に、空の代替関数（`physics/WPS/jpc_stub.c`）をリンク。`-Wl,-U` だと起動時にdyldが落ちるので不可 |
+| `real.exe` が無い | 理想実験用にしかビルドしていなかった | `./clean` → `./compile -j 8 em_real`（`configure.wrf` は残る）。理想実験の exe は `main/*_qss.exe` に退避 |
+| real: `not enough info for a p sfc computation` | Vtable.GFS は海面更正気圧に **MSLET**（PRMSLではない）を使う | 取得対象に `:MSLET:mean sea level:` を追加 |
+| `urllib` で SSL 証明書エラー | uv版Pythonは証明書が空 | `truststore.inject_into_ssl()`（macOSの証明書ストア） |
+| `.part`→再取得 | 取得スクリプトは完了済みファイルをスキップ | 変数を追加したときは、ファイルを消して再取得するか追記する |
+
+## 結果（暫定）
+
+| 項目 | 値 |
+|---|---|
+| WPS（geogrid〜metgrid） | 各数秒〜数十秒 |
+| real.exe | 数秒 |
+| wrf.exe 24h | 約417秒（6プロセス）。CPU使用は sys 時間が大きく MPI の待ちが多い。プロセス数の最適化は未検証 |
+| 10m風 最大 | 約21 m/s（+6h）。気温 11〜28℃ |
+| 降水 | +6hまでに最大約200mm → **要検証（スピンアップの疑い）** |
+
+## 今後（Phase 3）
+
+- 同じ事例（初期 2026-11-26 18UTC）で AIFS（Phase 1の出力）と WRF を並べ、海面気圧・気温・風・降水を GFS/ECMWFの解析・実況と比較
+- 降水のスピンアップが本当に過大か（GFS降水・アメダスと比較。積雲スキームの切り替え・初期時刻の見直し）

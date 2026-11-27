@@ -7,7 +7,7 @@
 
 | モデル | 概要 | Mac(arm64)での見込み | 備考 |
 |---|---|---|---|
-| WRF（ARW） | 領域気象モデルの標準。 | **v4.7.1 がビルド・実行できた**（conda-forge の gfortran・netCDF・MPICH、dmpar）。理想実験は成功 | 実事例（WPS・初期値）はこれから。[phase2_log.md](phase2_log.md) |
+| WRF（ARW） | 領域気象モデルの標準。 | **v4.7.1 がビルド・実行できた**（conda-forge の gfortran・netCDF・MPICH、dmpar）。理想実験・実事例（沖縄周辺9km・GFS初期値）とも成功 | [phase2_log.md](phase2_log.md) |
 | SCALE-RM | 日本発の領域モデル（理研）。 | ビルド可否は要確認 | 日本語資料が多い |
 | CM1 | 雲解像の理想実験向け。 | 小規模なら軽い見込み | 理想実験の入門向き |
 | MPAS-A | 全球・可変解像度。 | 重い見込み。粗解像度のみ | 後回し |
@@ -34,3 +34,4 @@
 |---|---|---|---|---|---|
 | AIFS Single v1.0（anemoi-inference） | 導入済み（Python3.11・版固定） | **CPU・fp32で動作（既定）**。MPSは結果が不安定で不採用 | 24h予報 約224秒（約55秒/ステップ） | 約55GB | 公式AIFSと+24hで一致（海面気圧RMSE 0.42hPa・2m気温0.65K）。詳細は [phase1_log.md](phase1_log.md) |
 | WRF v4.7.1（em_quarter_ss） | 導入済み（conda隔離） | 理想実験スーパーセル 2h | 約10秒（MPI 4並列） | 不明（小規模） | 最大上昇流43m/s・積算降水79mm。実事例は未 |
+| WRF v4.7.1（沖縄周辺9km・GFS初期値） | 導入済み（WPS含む） | 実事例24h予報（121×101×45層） | 約417秒（6プロセス） | 不明 | 完走。降水が+6hで約200mmと過大の疑い（Phase 3で検証） |

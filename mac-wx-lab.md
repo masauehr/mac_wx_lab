@@ -21,7 +21,7 @@
 |---|---|---|
 | 0 | 候補整理・評価軸の決定（[docs/candidates.md](docs/candidates.md)） | 完了 |
 | 1 | AIモデル1つを最小実行（AIFS Single v1.0・全球24h予報） | 完了（CPU・fp32で約224秒・公式と一致。[docs/phase1_log.md](docs/phase1_log.md)） |
-| 2 | 物理モデル1つを最小実行（理想実験→実事例） | 理想実験まで完了（WRF v4.7.1・スーパーセル2hが約10秒。[docs/phase2_log.md](docs/phase2_log.md)）。実事例は未着手 |
+| 2 | 物理モデル1つを最小実行（理想実験→実事例） | 完了（WRF v4.7.1・スーパーセル2hが約10秒、実事例=沖縄周辺9km・GFS初期値の24h予報が約417秒。降水の過大は要検証。[docs/phase2_log.md](docs/phase2_log.md)） |
 | 3 | 同一事例で比較（時間・メモリ・結果の違い） | 未着手 |
 | 4 | 最終レポート（動いた/動かなかった・手順・所要時間） | 未着手 |
 
@@ -50,3 +50,11 @@ AIFS Single v1.0（ECMWF・CC BY 4.0）を Mac の **CPU・fp32** で実行。24
 ## Phase 2 の結果（2026-11-27）
 
 WRF v4.7.1 を Mac（arm64）でビルド（gfortran/clang・dmpar。依存は Homebrew を使わず conda-forge に隔離）。理想実験 em_quarter_ss（スーパーセル）の2時間積分が約10秒（MPI 4並列）。最大上昇流43m/s・積算降水79mm。実事例（WPS・初期値）は未着手。ビルド手順・つまずきは [mac-wx-lab-phase2.md](mac-wx-lab-phase2.md)（プロジェクト内は `docs/phase2_log.md`、`physics/build_wrf.sh`）。
+
+## Phase 1 の結果（2026-11-27）
+
+AIFS Single v1.0（ECMWF・CC BY 4.0）を Mac の **CPU・fp32** で実行。24h予報 約224秒・最大メモリ約55GB・公式AIFSと+24hで一致（海面気圧RMSE 0.42hPa、2m気温0.65K）。MPS（GPU）は torch 2.4 で結果が実行ごとに変わり不安定なため不採用。詳細は [mac-wx-lab-phase1.md](mac-wx-lab-phase1.md)（プロジェクト内は `docs/phase1_log.md`）。
+
+## Phase 2 の結果（2026-11-27）
+
+WRF v4.7.1 を Mac（arm64）でビルド（gfortran/clang・dmpar。依存は Homebrew を使わず conda-forge に隔離）。理想実験 em_quarter_ss（スーパーセル）の2時間積分が約10秒。実事例として、WPS＋GFS 0.25°初期値（2026-11-26 18UTC）で沖縄周辺9km（121×101×45層）の24時間予報が約417秒（6プロセス）で完走。降水が+6hで約200mmと過大の疑いがあり、Phase 3で検証する。手順・つまずきは [mac-wx-lab-phase2.md](mac-wx-lab-phase2.md)（プロジェクト内は `docs/phase2_log.md`、`physics/*.sh`・`physics/*.py`）。
