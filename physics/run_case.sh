@@ -21,6 +21,7 @@ rm -f GFS:* met_em* GRIBFILE.*
 "$P/link_grib.csh" "$ROOT"/data/gfs/"$INIT"/gfs.t*z.pgrb2.0p25.f0* > /dev/null
 ./ungrib.exe > ungrib.log 2>&1
 ./metgrid.exe > metgrid.log 2>&1
+find . -maxdepth 1 \( -name "GFS:*" -o -name "GRIBFILE.*" \) -delete    # WPSの中間ファイル（約6.6GB）。metgridの後は不要（表示・作図は使わない）
 mpirun -np 1 ./real.exe > real.log 2>&1
 mpirun -np 6 ./wrf.exe > wrf_run.log 2>&1      # 6プロセス: 24h約417秒（M5 Pro）
 tail -2 rsl.out.0000

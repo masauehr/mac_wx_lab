@@ -307,7 +307,16 @@ bash webapp/start.sh        # → http://127.0.0.1:8795/ （この Mac からだ
 
 **1初期時刻（対照＋AIFS）あたり**: GFS 約1.1GB、参照約0.4GB、AIFS 入力 0.8GB・出力 0.3GB、WRF 出力 0.4GB＋作業ディレクトリ約7GB、図 約0.7GB（標高陰影のみ）。**WRF 実験1つあたり**: 作業ディレクトリ約7GB＋出力 0.4GB＋図 約0.15GB。
 
-**容量を減らす候補**（未実施）: WPS の中間ファイル `GFS:*`（実験1つあたり約6.6GB）、WPS_GEOG の圧縮ファイル（2.7GB）、`outputs/`（0.27GB）。実験を重ねるなら、WRF 実行後に中間ファイルを自動で消す設定の追加を推奨します。
+**WPS の中間ファイル `GFS:*`（実験1つあたり約6.6GB）は、実行時に自動で消します**（`physics/wrfcase.py` と `physics/run_case.sh`。metgrid の後に削除）。画像表示・任意作図・断面図・エマグラムは使いません（使うのは `wrfout`）。残したいときは、設定に `"keep_intermediate": true` を入れます。`wrfout` は `physics/cases/<ケース>/` の中にあり、`runs/` はそこへのリンクなので、**ケースのフォルダごとは消さないでください**（`met_em*`・`wrfinput`・`wrfbdy` は小さく、WRF の再実行にだけ必要）。
+
+**既存のケースの中間ファイルを消す**には、まず一覧を見て、確認してから削除します。
+
+```bash
+.venv/bin/python physics/wrfcase.py clean            # 一覧だけ（削除しない）。2026-11-27時点で合計 27.7GB
+.venv/bin/python physics/wrfcase.py clean --apply    # 削除する
+```
+
+**そのほかの減らす候補**（未実施）: WPS_GEOG の圧縮ファイル（2.7GB・展開済みなので不要）、`outputs/`（0.27GB）。
 
 ## 12. 公開（感度実験・任意作図の図を公開サイトへ）
 

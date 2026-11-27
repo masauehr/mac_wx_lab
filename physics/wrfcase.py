@@ -9,6 +9,7 @@
   "terrain": [ {"type": "remove_land", "bbox": [127.6, 128.4, 26.0, 26.9]} ]                # 地形・陸海の編集（geogrid の出力を編集）
 }
 使い方: python physics/wrfcase.py run <設定JSON> <初期時刻YYYYMMDDHH>   /   estimate <設定JSON>   /   check <設定JSON>
+        python physics/wrfcase.py clean [--apply]   既存ケースの中間ファイル（GFS:*）を一覧（--apply で削除）。実行時は metgrid の後に自動で消す
 """
 import json
 import math
@@ -395,6 +396,22 @@ def edit_terrain(geo_path, ops, dom_no):
     return notes
 
 
+# ---------- 中間ファイルの削除 ----------
+def clean_intermediate(case, apply=True):
+    """WPS の ungrib の出力（GFS:*。1ケース約6〜7GB）と GRIBFILE.* のリンクを消す。metgrid の後は不要（表示・作図は使わない）。
+    wrfout・met_em・wrfinput・wrfbdy は消さない。返り値は消した（消せる）バイト数"""
+    total = 0
+    for f in list(case.glob("GFS:*")) + list(case.glob("GRIBFILE.*")):
+        if f.is_symlink():
+            if apply:
+                f.unlink()
+        elif f.is_file():
+            total += f.stat().st_size
+            if apply:
+                f.unlink()
+    return total
+
+
 # ---------- 実行 ----------
 def _run(cmd, cwd, log, env=None, note=""):
     log(f"$ {' '.join(map(str, cmd))}  {note}")
@@ -447,6 +464,9 @@ def run(cfg, init, procs=6, log=print):
     _run([str(wps / "link_grib.csh")] + [str(g) for g in gfs[:need]], case, log, env)
     _run(["./ungrib.exe"], case, log, env, "GFSの変換")
     _run(["./metgrid.exe"], case, log, env, "格子へ補間")
+    if not cfg.get("keep_intermediate"):
+        freed = clean_intermediate(case)
+        log(f"WPSの中間ファイル（GFS:*）を削除: {freed / 1e9:.1f}GB（残す場合は設定に keep_intermediate: true）")
     _run(["mpirun", "-np", "1", "./real.exe"], case, log, env, "初期値・境界値の作成")
     est = estimate(cfg)
     log(f"WRF を実行（見積り {est['minutes']} 分）")
@@ -466,8 +486,19 @@ def run(cfg, init, procs=6, log=print):
 
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2 or (sys.argv[1] != "clean" and len(sys.argv) < 3):
         sys.exit(__doc__)
+    if sys.argv[1] == "clean":                              # 既存のケースの中間ファイルを消す（--apply を付けるまで一覧だけ）
+        apply = "--apply" in sys.argv
+        total = 0
+        for case in sorted((PHYS / "cases").glob("*/")):
+            if (case / "namelist.input").exists():
+                n = clean_intermediate(case, apply)
+                total += n
+                if n:
+                    print(f"{case.name}: {n / 1e9:.1f}GB" + ("（削除しました）" if apply else "（削除対象。--apply で削除）"))
+        print(f"合計 {total / 1e9:.1f}GB" + ("を削除しました" if apply else "が削除できます（まだ削除していません）"))
+        return
     cmd, cfg = sys.argv[1], load_cfg(sys.argv[2])
     if cmd == "estimate":
         print(json.dumps(estimate(cfg), ensure_ascii=False, indent=1))
