@@ -95,7 +95,8 @@ def ecmwf_F(key, init, ft, rr_window=6, sfc_only=False):
     F["sp"] = sfc[("sp", None, ft)] / 100.0
     F["u10"], F["v10"] = sfc[("10u", None, ft)], sfc[("10v", None, ft)]
     F["t2"] = sfc[("2t", None, ft)] - 273.15
-    F["tcc"] = sfc[("tcc", None, ft)] * (100.0 if sfc[("tcc", None, ft)].max() <= 1.5 else 1.0)
+    tcc = sfc.get(("tcc", None, ft))            # 初期時刻（0時間）に全雲量が無いデータがある（2025-09など）→ 0（晴）で補う
+    F["tcc"] = np.zeros_like(F["msl"]) if tcc is None else tcc * (100.0 if tcc.max() <= 1.5 else 1.0)
     F["rr"], F["rr_h"] = None, rr_window
     if ft >= rr_window and ("tp", None, ft) in sfc:
         prev = sfc[("tp", None, ft - rr_window)] if ("tp", None, ft - rr_window) in sfc else 0
