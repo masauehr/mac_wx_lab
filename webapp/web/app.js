@@ -3,7 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const STATIC = !!window.STATIC_SITE;   // 公開サイト（閲覧専用・APIなし）
 const MODEL_ORDER = ["wrf", "aifs", "aifs_off", "ifs"];
-const st = { init: null, region: "okinawa", model: "wrf", model2: "aifs", chart: "msl", ft: 6, cmp: false, playing: false, timer: null };
+const st = { init: null, region: "wrf", model: "wrf", model2: "aifs", chart: "surf", map: "", ft: 6, cmp: false, playing: false, timer: null };
 let INDEX = null;       // 選択中の初期時刻の index.json
 let runs = [];
 
@@ -24,14 +24,14 @@ function validTime(init, ft) {
 
 // ---------- ハッシュ（URL）に状態を保存 ----------
 function saveHash() {
-  const p = new URLSearchParams({ init: st.init || "", region: st.region, model: st.model, chart: st.chart, ft: st.ft });
+  const p = new URLSearchParams({ init: st.init || "", map: st.map, region: st.region, model: st.model, chart: st.chart, ft: st.ft });
   if (st.cmp) { p.set("cmp", "1"); p.set("model2", st.model2); }
   history.replaceState(null, "", "#" + p.toString());
 }
 function loadHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   if (p.get("init")) st.init = p.get("init");
-  for (const k of ["region", "model", "chart", "model2"]) if (p.get(k)) st[k] = p.get(k);
+  for (const k of ["region", "model", "chart", "model2", "map"]) if (p.get(k)) st[k] = p.get(k);
   if (p.get("ft")) st.ft = +p.get("ft");
   st.cmp = p.get("cmp") === "1";
 }
@@ -39,7 +39,10 @@ function loadHash() {
 // ---------- 索引に基づく選択肢 ----------
 const regionModels = () => (INDEX && INDEX.regions[st.region] ? INDEX.regions[st.region].models : {});
 const hoursOf = (model, chart) => ((regionModels()[model] || {}).hours || {})[chart] || [];
-const imgUrl = (model, chart, ft) => `${STATIC ? "data" : "/img"}/${st.init}/${st.region}/${model}/${chart}/f${pad(ft, 3)}.png`;
+const imgUrl = (model, chart, ft) => {
+  const common = (INDEX.common || []).includes(chart);       // 差分・検証の図は背景地図なし（common）
+  return `${STATIC ? "data" : "/img"}/${st.init}/${common ? "common" : st.map}/${st.region}/${model}/${chart}/f${pad(ft, 3)}.png`;
+};
 
 function fillModelSelects() {
   const ms = MODEL_ORDER.filter((m) => regionModels()[m]);
@@ -48,6 +51,11 @@ function fillModelSelects() {
     if (!ms.includes(st[key])) st[key] = ms[key === "model" ? 0 : Math.min(1, ms.length - 1)] || "";
     sel.value = st[key];
   }
+}
+function fillMaps() {
+  const sel = $("mapSel");
+  sel.innerHTML = INDEX.maps.map((m) => `<option value="${m.id}">${m.label}</option>`).join("");
+  sel.value = st.map; $("mapLbl").hidden = INDEX.maps.length < 2;
 }
 function fillRegions() {
   const box = $("regionBtns");
@@ -155,7 +163,13 @@ async function loadRuns() {
 async function refresh(keepFt) {
   if (!st.init) { INDEX = null; $("timeInfo").textContent = (STATIC ? "表示できる結果がありません。" : "まだ結果がありません。「計算を実行」から作ってください。"); return; }
   if (!INDEX || INDEX.init !== st.init) INDEX = STATIC ? await (await fetch(`data/${st.init}/index.json`)).json() : await api(`/api/index/${st.init}`);
-  fillRegions(); fillModelSelects(); fillTabs();
+  if (!INDEX.regions[st.region]) st.region = Object.keys(INDEX.regions)[0];
+  if (!(INDEX.maps || []).some((m) => m.id === st.map)) st.map = (INDEX.maps[0] || {}).id || "pale";
+  fillMaps(); fillRegions(); fillModelSelects();
+  if (!INDEX.charts.some((c) => c.id === st.chart && hoursOf(st.model, c.id).length)) {
+    const c = INDEX.charts.find((c) => hoursOf(st.model, c.id).length); if (c) st.chart = c.id;
+  }
+  fillTabs();
   $("updated").textContent = `作図: ${INDEX.rendered_at ? INDEX.rendered_at.replace("T", " ").replace("+00:00", " UTC") : ""}`;
   render();
 }
@@ -227,6 +241,7 @@ async function main() {
   loadHash();
   await loadRuns();
   if (runs.length && !runs.includes(st.init)) st.init = runs[0];
+  $("mapSel").onchange = (e) => { st.map = e.target.value; render(); };
   $("modelSel").onchange = (e) => { st.model = e.target.value; fillTabs(); render(); };
   $("model2Sel").onchange = (e) => { st.model2 = e.target.value; render(); };
   $("cmpChk").onchange = (e) => { st.cmp = e.target.checked; render(); };
@@ -241,10 +256,11 @@ async function main() {
   $("btnStats").onclick = showStats; $("statsClose").onclick = () => $("statsDlg").close();
   $("runGo").onclick = async () => {
     const models = [$("runAifs").checked && "aifs", $("runWrf").checked && "wrf"].filter(Boolean);
-    try { drawJob(await api("/api/run", { init: $("runInit").value, models })); pollJob(); } catch (e) { $("runMsg").textContent = "開始できません: " + e.message; }
+    const maps = [...document.querySelectorAll(".runMap:checked")].map((x) => x.value);
+    try { drawJob(await api("/api/run", { init: $("runInit").value, models, maps })); pollJob(); } catch (e) { $("runMsg").textContent = "開始できません: " + e.message; }
   };
   $("runRender").onclick = async () => {
-    try { drawJob(await api("/api/render", { init: $("runInit").value })); pollJob(); } catch (e) { $("runMsg").textContent = "開始できません: " + e.message; }
+    try { drawJob(await api("/api/render", { init: $("runInit").value, maps: [...document.querySelectorAll(".runMap:checked")].map((x) => x.value) })); pollJob(); } catch (e) { $("runMsg").textContent = "開始できません: " + e.message; }
   };
   $("runCancel").onclick = async () => { await api("/api/cancel", {}); pollJob(); };
   addEventListener("keydown", (e) => {
@@ -260,7 +276,7 @@ async function main() {
     e.preventDefault();
   });
   addEventListener("hashchange", () => location.reload());   // URLを貼り替えたときに状態を読み直す
-  if (STATIC) { $("btnRun").hidden = true; $("jobMsg").hidden = true; document.body.classList.add("static"); }
+  if (STATIC) { $("lnkCustom").hidden = true; $("btnRun").hidden = true; $("jobMsg").hidden = true; document.body.classList.add("static"); }
   await refresh();
   if (!STATIC) pollJob();   // 実行中のジョブがあれば状態を表示
 }

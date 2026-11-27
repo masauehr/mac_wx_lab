@@ -70,3 +70,5 @@ body.cmp #caveat { max-width:1800px; }
 .legal summary { cursor:pointer; color:var(--accent); font-size:12px; }
 .legal p { margin:4px 0; word-break:break-word; }
 footer a { color:var(--accent); }
+header a { color:var(--accent); }
+#chartTabs button:nth-last-child(-n+5) { border-style:dashed; }

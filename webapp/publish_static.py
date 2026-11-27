@@ -25,12 +25,12 @@ def quantize(src: Path, dst: Path):
     im.save(dst, optimize=True)
 
 
-def build(inits):
+def build(inits, maps=("pale",)):
     if SITE.exists():
         shutil.rmtree(SITE)  # 生成物（_site）だけを消す
     SITE.mkdir(parents=True)
     for f in WEB.iterdir():
-        if f.is_file():
+        if f.is_file() and not f.name.startswith("custom."):       # 任意作図はローカル専用（公開しない）
             shutil.copy(f, SITE / f.name)
     (SITE / "config.js").write_text("window.STATIC_SITE = true;\n")
     for f in ("LICENSE", "NOTICE.md"):
@@ -38,13 +38,16 @@ def build(inits):
     (SITE / ".nojekyll").write_text("")
     n = 0
     for init in inits:
-        for p in (OUT / init).rglob("*"):
-            rel = p.relative_to(OUT / init)
-            if p.suffix == ".png":
-                quantize(p, SITE / "data" / init / rel); n += 1
-            elif p.name == "index.json":
-                (SITE / "data" / init).mkdir(parents=True, exist_ok=True)
-                shutil.copy(p, SITE / "data" / init / rel)
+        (SITE / "data" / init).mkdir(parents=True, exist_ok=True)
+        idx = json.loads((OUT / init / "index.json").read_text())
+        idx["maps"] = [m for m in idx.get("maps", []) if m["id"] in maps]      # 公開する背景地図だけ
+        (SITE / "data" / init / "index.json").write_text(json.dumps(idx, ensure_ascii=False))
+        for sub in list(maps) + ["common"]:
+            for p in (OUT / init / sub).rglob("*.png"):
+                dst = SITE / "data" / init / p.relative_to(OUT / init)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(p, dst)                                           # 作図時に256色へ減色済み
+                n += 1
     (SITE / "data").mkdir(exist_ok=True)
     (SITE / "data" / "runs.json").write_text(json.dumps({"runs": inits}))
     size = sum(f.stat().st_size for f in SITE.rglob("*") if f.is_file()) / 1e6
@@ -67,11 +70,18 @@ def main():
     ap.add_argument("inits", nargs="*")
     ap.add_argument("--keep", type=int, default=3, help="指定がないとき、新しい順に何件載せるか")
     ap.add_argument("--build-only", action="store_true")
+    ap.add_argument("--maps", default="terrain", help="公開する背景地図（カンマ区切り）。容量に注意")
+    ap.add_argument("--allow-gsi", action="store_true",
+                    help="国土地理院タイルの背景を公開する。規約上の可否が未確認のため、既定では公開しない（NOTICE.md 参照）")
     a = ap.parse_args()
     inits = a.inits or sorted([p.parent.name for p in OUT.glob("*/index.json")], reverse=True)[: a.keep]
     if not inits:
         sys.exit("作図済みの結果がありません")
-    size = build(inits)
+    maps = tuple(a.maps.split(","))
+    gsi = [m for m in maps if m in ("pale", "relief", "hillshade", "std")]
+    if gsi and not a.allow_gsi:
+        sys.exit(f"国土地理院タイルの背景（{gsi}）は公開しません（加工画像の再配布の可否が未確認。NOTICE.md）。--allow-gsi で上書きできます")
+    size = build(inits, maps)
     if size > 900:
         sys.exit("サイトが900MBを超えました（Pagesは1GBが目安）。--keep を減らしてください")
     if not a.build_only:

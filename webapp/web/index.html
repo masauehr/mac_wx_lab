@@ -19,8 +19,10 @@
     <button id="btnSwap" title="左右のモデルを入れ替える">⇄ 入替</button>
   </span>
   <label>初期値 <select id="initSel"></select></label>
+  <label id="mapLbl" title="天気図の背景地図（国土地理院タイル等）">地図 <select id="mapSel"></select></label>
   <div id="regionBtns" class="seg" role="group" aria-label="地域"></div>
   <button id="btnRun" title="初期時刻を選んで、データ取得・AIFS・WRFを実行し、図を作ります">計算を実行</button>
+  <a id="lnkCustom" href="custom.html" title="高度（気圧面・メートル）と表示範囲を指定して図を作る（ローカル専用）">任意作図</a>
   <button id="btnStats" title="IFSを参照にした検証の数値表">検証表</button>
   <span id="jobMsg"></span>
   <span id="updated"></span>
@@ -74,6 +76,7 @@
     <p><b>AIFS（手元）</b>: ECMWF の公式重み <a href="https://huggingface.co/ecmwf/aifs-single-1.0" target="_blank" rel="noopener">AIFS Single v1.0</a>（CC BY 4.0）を anemoi-inference（Apache-2.0）でこの Mac の CPU で実行した結果。引用: Lang et al. (2024), <a href="https://arxiv.org/abs/2406.01465" target="_blank" rel="noopener">arXiv:2406.01465</a>。GPUの非決定性等のため公式の予報と完全には一致しません。</p>
     <p><b>NOAA GFS</b>: NOAA/NCEP Global Forecast System (GFS) 0.25° was accessed from https://registry.opendata.aws/noaa-gfs-bdp-pds/ and used as WRF initial and boundary conditions. The charts are modified (model output derived from the data), not original NOAA data and not official government materials. Not endorsed by or affiliated with NOAA/NWS. Provided as is.</p>
     <p><b>WRF</b>: WRF v4.7.1・WPS v4.7.0（NCAR/UCAR。パブリックドメイン。WRF は UCAR の登録商標）を、この Mac でビルドして実行。地形・土地利用は NCAR の WPS_GEOG（低解像度。元データ: MODIS・USGS/GMTED2010 など）。データ自体は再配布していません。</p>
+    <p><b>背景地図</b>: 公開サイトの背景は、GMTED2010（USGS/NGA。NCAR WPS_GEOG 経由）の標高から作った陰影起伏と標高の色（加工して作成）。ローカル版では、国土地理院の地理院タイル（淡色地図・色別標高図・陰影起伏図）を加工して使い、図に出典（国土地理院）と加工の旨を入れています（公開サイトには載せていません）。</p>
     <p><b>免責</b>: 図の内容・利用による損害について作成者は責任を負いません。予報は不確実性を含みます。コードは MIT License（<a href="https://github.com/masauehr/mac_wx_lab" target="_blank" rel="noopener">GitHub: masauehr/mac_wx_lab</a>、<a href="https://github.com/masauehr/mac_wx_lab/blob/main/NOTICE.md" target="_blank" rel="noopener">NOTICE</a>）。</p>
   </details>
   <p>ショートカット: ←→ 予報時間、↑↓ 図種、Space 再生、C 2モデル比較の切替</p>
@@ -87,6 +90,12 @@
     <label>初期時刻（UTC） <select id="runInit"></select></label>
     <label><input type="checkbox" id="runAifs" checked> AIFS（CPU・約4〜8分）</label>
     <label><input type="checkbox" id="runWrf" checked> WRF 沖縄周辺9km（GFS取得 約35分＋計算 約10分）</label>
+  </div>
+  <div class="row">背景地図:
+    <label><input type="checkbox" class="runMap" value="pale" checked> 淡色地図</label>
+    <label><input type="checkbox" class="runMap" value="relief"> 色別標高図</label>
+    <label><input type="checkbox" class="runMap" value="hillshade"> 陰影起伏</label>
+    <span class="note">（国土地理院タイル。選んだ数だけ作図に時間と容量がかかります）</span>
   </div>
   <div class="row">
     <button id="runGo" class="primary">実行</button>

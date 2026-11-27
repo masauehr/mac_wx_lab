@@ -45,3 +45,4 @@
 - **Phase 2（WRF）**: WRF v4.7.1 を Mac でビルド（conda-forge に隔離）。理想実験（スーパーセル）2h約10秒、実事例（WPS＋GFS初期値・沖縄周辺9km）24h約417秒。[mac-wx-lab-phase2.md](mac-wx-lab-phase2.md)
 - **Phase 3（比較とWebアプリ）**: AIFS・公式AIFS・WRF を IFS 比で比較。**WRFの降水が過大**（領域平均 IFS比+35%・最大2倍。スピンアップの疑い）。計算の実行と表示ができるローカルWebアプリ（`bash webapp/start.sh` → http://127.0.0.1:8795/）と、閲覧専用の公開サイト（GitHub Pages: https://masauehr.github.io/mac_wx_lab/）。MITライセンス。データの規約確認（ECMWF=CC BY 4.0、NOAA GFS、WRF=パブリックドメイン、WPS_GEOGは条件の記載なし）は [mac-wx-lab-phase3.md](mac-wx-lab-phase3.md) と NOTICE.md。
 
+- **Phase 3 追補（2026-11-27）**: 天気図を nwp_chart_web と同じ13図種に揃え、背景地図（国土地理院タイル＝ローカルのみ、公開は GMTED の陰影起伏）と、高度・範囲を指定して作る**任意作図アプリ**（ローカル専用 `/custom.html`）を追加。国土地理院タイルの再配布は規約から判断できないため公開しない。詳細は [mac-wx-lab-phase3.md](mac-wx-lab-phase3.md)。

@@ -43,6 +43,7 @@ PARAM_SOIL = ["vsw", "sot"]
 PARAM_PL = ["gh", "t", "u", "v", "w", "q"]
 LEVELS = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100, 50]
 SOIL_LEVELS = [1, 2]
+LEVELS_PL = LEVELS
 OUT_FIELDS = ["2t", "msl", "10u", "10v", "tp"]  # 保存する出力変数
 
 
@@ -118,9 +119,25 @@ def main():
     print(f"モデル読込: {t2 - t1:.1f}s")
 
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    import earthkit.regrid as _ekr
+
+    full_names = ["msl", "sp", "2t", "10u", "10v", "tp", "tcc"] + [f"{v}_{lv}" for lv in LEVELS_PL for v in ("z", "t", "u", "v", "w", "q")]
+
+    def save_full(state, step):
+        """天気図用に、必要な全変数を 0.25度（東アジア広域）へ補間して保存する（float32）"""
+        lat = np.linspace(90, -90, 721); lon = np.arange(0, 360, 0.25)
+        ii = np.where((lat >= -10) & (lat <= 80))[0]; jj = np.where((lon >= 50) & (lon <= 190))[0]
+        arrs = {}
+        for k in full_names:
+            if k in state["fields"]:
+                r = _ekr.interpolate(state["fields"][k], {"grid": "N320"}, {"grid": (0.25, 0.25)})
+                arrs[k] = r[np.ix_(ii, jj)].astype("float32")
+        np.savez(out / f"aifsfull_{date:%Y%m%d%H}_{step:%Y%m%d%H}.npz", lat=lat[ii], lon=lon[jj], **arrs)
+
     for state in runner.run(input_state=dict(date=date, fields=fields), lead_time=a.lead_time):
         step = state["date"]
         print("ステップ:", step, f"経過 {time.time() - t2:.1f}s")
+        save_full(state, step)
         np.savez_compressed(
             out / f"aifs_{date:%Y%m%d%H}_{step:%Y%m%d%H}.npz",
             lat=state["latitudes"], lon=state["longitudes"],

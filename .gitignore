@@ -46,3 +46,5 @@ webapp/output/
 webapp/logs/
 physics/cases/okinawa_*/
 webapp/_site/
+webapp/custom_out/
+data/tiles/

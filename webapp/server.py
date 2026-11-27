@@ -107,6 +107,14 @@ class H(BaseHTTPRequestHandler):
         if path == "/api/flags":
             init = self.path.split("init=")[-1] if "init=" in self.path else ""
             return self._send(200, jobs.done_flags(init) if jobs.INIT_RE.match(init) else {})
+        if path == "/api/custom_options":
+            import customchart
+            return self._send(200, customchart.options())
+        if path == "/api/custom_history":
+            import customchart
+            return self._send(200, {"items": customchart.history()})
+        if path.startswith("/custom_out/"):
+            return self._file(HERE / "custom_out", path[len("/custom_out/"):])
         if path.startswith("/img/"):
             return self._file(OUT, path[len("/img/"):])
         if path in ("/", "/index.html"):
@@ -124,9 +132,18 @@ class H(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             if path == "/api/run":
-                return self._send(200, jobs.start(str(body.get("init", "")), list(body.get("models", []))))
+                return self._send(200, jobs.start(str(body.get("init", "")), list(body.get("models", [])), list(body.get("maps", []))))
             if path == "/api/render":
-                return self._send(200, jobs.start_render(str(body.get("init", ""))))
+                return self._send(200, jobs.start_render(str(body.get("init", "")), list(body.get("maps", []))))
+            if path == "/api/custom":
+                import customchart
+                try:
+                    out, note = customchart.render(body)
+                except (ValueError, KeyError) as e:
+                    return self._send(400, {"error": str(e) if isinstance(e, ValueError) else f"指定が足りません: {e}"})
+                except Exception as e:  # noqa: BLE001  描画の失敗は画面にメッセージで返す
+                    return self._send(500, {"error": f"作図に失敗しました: {type(e).__name__}: {e}"})
+                return self._send(200, {"url": f"/custom_out/{out.name}", "note": note})
             if path == "/api/cancel":
                 return self._send(200, {"cancelled": jobs.cancel()})
         except (ValueError, RuntimeError) as e:

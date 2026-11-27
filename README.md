@@ -23,7 +23,7 @@ MacBook（Apple M5 Pro・メモリ64GB）上で、**気象の物理モデル（�
 | [mac-wx-lab.md](mac-wx-lab.md) | プロジェクト全体の計画・Phase・判断メモ |
 | [docs/candidates.md](docs/candidates.md) | 候補モデルの一覧と評価軸 |
 | `physics/` | WRFのビルド（`build_wrf.sh`）・理想実験の図（`plot_qss.py`）。WRF本体は git除外 |
-| `webapp/` | **ローカルWebアプリ**（`bash webapp/start.sh` → http://127.0.0.1:8795/）。計算の実行・天気図風の表示・2モデル比較・検証表 |
+| `webapp/` | **ローカルWebアプリ**（`bash webapp/start.sh` → http://127.0.0.1:8795/）。計算の実行・nwp_chart と同じ13図種の天気図・背景地図（国土地理院タイル等）・2モデル比較・検証表・**任意作図**（高度と範囲を指定。`/custom.html`） |
 | [docs/phase3_log.md](docs/phase3_log.md) | Phase 3の比較結果とWebアプリの説明 |
 | [docs/phase2_log.md](docs/phase2_log.md) | Phase 2の作業ログ（WRFビルド・スーパーセル） |
 | `ai/` | AIFS実行（`run_aifs.py`）・公式との比較（`compare_official.py`）・プロット・flash_attn代替スタブ |

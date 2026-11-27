@@ -29,8 +29,8 @@ def done_flags(init):
     """各ステージが既に済んでいるか（済みならスキップ）"""
     r = ROOT / "runs" / init
     return {
-        "refs": (ROOT / "data" / f"ref_ifs_{init}.grib2").exists() and (ROOT / "data" / f"ref_aifs-single_{init}.grib2").exists(),
-        "aifs": len(list((r / "aifs").glob("aifs_*.npz"))) >= 4,
+        "refs": all((ROOT / "data" / f"ref_{m}_{init}{sfx}.grib2").exists() for m in ("ifs", "aifs-single") for sfx in ("", "_pl")),
+        "aifs": len(list((r / "aifs").glob("aifsfull_*.npz"))) >= 4,           # 天気図用の全変数まで保存済みか
         "wrf": wrf_out_path(init).exists(),
     }
 
@@ -53,8 +53,9 @@ def make_case(init):
 
 
 class Job:
-    def __init__(self, init, models):
+    def __init__(self, init, models, maps=None):
         self.init, self.models = init, models
+        self.maps = maps or ["pale"]
         self.status = "queued"           # queued / running / done / error / cancelled
         self.stages = []                 # [{name, key, status}]
         self.log = LOGS / f"{init}.log"
@@ -136,7 +137,7 @@ def _pipeline(job):
                     dst.unlink()
                 dst.symlink_to(outs[0].resolve())
             elif key == "render":
-                _run(job, [PY, "webapp/render.py", init])
+                _run(job, [PY, "webapp/render.py", init, "--maps", ",".join(job.maps)])
             s["status"] = "done"
         job.status = "done"
     except Exception as e:  # noqa: BLE001
@@ -148,7 +149,7 @@ def _pipeline(job):
     job.ended = time.time()
 
 
-def start(init, models):
+def start(init, models, maps=None):
     global JOB
     if not INIT_RE.match(init):
         raise ValueError("初期時刻の形式が不正です（YYYYMMDDHH）")
@@ -160,16 +161,13 @@ def start(init, models):
             raise RuntimeError("別の計算が実行中です")
         LOGS.mkdir(parents=True, exist_ok=True)
         (LOGS / f"{init}.log").write_text("")
-        JOB = Job(init, models)
+        maps = [m for m in (maps or ["pale"]) if m in ("pale", "relief", "hillshade", "std", "terrain")] or ["pale"]
+        JOB = Job(init, models, maps)
         threading.Thread(target=_pipeline, args=(JOB,), daemon=True).start()
     return JOB.to_dict()
 
 
-def render_only(init):
-    return start_render(init)
-
-
-def start_render(init):
+def start_render(init, maps=None):
     global JOB
     if not INIT_RE.match(init):
         raise ValueError("初期時刻の形式が不正です")
@@ -178,14 +176,14 @@ def start_render(init):
             raise RuntimeError("別の計算が実行中です")
         LOGS.mkdir(parents=True, exist_ok=True)
         (LOGS / f"{init}.log").write_text("")
-        job = Job(init, [])
+        job = Job(init, [], [m for m in (maps or ["pale"]) if m in ("pale", "relief", "hillshade", "std", "terrain")] or ["pale"])
         JOB = job
 
         def run():
             job.stages = [{"key": "render", "name": "作図・検証", "status": "running"}]
             job.status = "running"
             try:
-                _run(job, [PY, "webapp/render.py", init])
+                _run(job, [PY, "webapp/render.py", init, "--maps", ",".join(job.maps)])
                 job.stages[0]["status"] = "done"
                 job.status = "done"
             except Exception as e:  # noqa: BLE001

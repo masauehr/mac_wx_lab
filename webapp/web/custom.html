@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任意作図（高度・範囲を指定）— Mac 数値予報ビューア</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  #layout { display:grid; grid-template-columns:340px 1fr; gap:14px; max-width:1500px; margin:0 auto; padding:12px 16px 24px; }
+  @media (max-width:900px) { #layout { grid-template-columns:1fr; } }
+  #panel { background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px 14px; align-self:start; }
+  #panel fieldset { border:1px solid var(--line); border-radius:6px; margin:0 0 10px; padding:6px 10px 8px; }
+  #panel legend { font-size:12px; color:#556; padding:0 4px; }
+  #panel label { display:flex; align-items:center; gap:6px; margin:4px 0; }
+  #panel label > span { min-width:4.2em; font-size:12px; color:#445; }
+  #panel select, #panel input[type=number], #panel input[type=text] { flex:1; min-width:0; padding:3px 6px; font:inherit; border:1px solid var(--line); border-radius:5px; }
+  .quick { display:flex; flex-wrap:wrap; gap:4px; margin:2px 0 4px; }
+  .quick button { padding:1px 7px; font-size:12px; }
+  .bbox { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:4px 8px; }
+  .bbox label { min-width:0; } .bbox label > span { min-width:3.6em; }
+  #go { width:100%; padding:8px; font-size:15px; }
+  #status { min-height:1.4em; font-size:12px; margin:6px 0 0; color:#445; }
+  #status.err { color:#c0392b; font-weight:600; }
+  #result { background:#fff; border:1px solid var(--line); min-height:300px; display:flex; align-items:center; justify-content:center; }
+  #result img { display:block; max-width:100%; height:auto; }
+  #note { font-size:12px; color:#b35c00; margin:6px 2px; }
+  #hist { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:8px; margin-top:12px; }
+  #hist figure { margin:0; cursor:pointer; border:2px solid transparent; background:#fff; }
+  #hist img { width:100%; display:block; }
+  #hist figcaption { font-size:10px; color:#556; padding:2px 4px; }
+  .help { font-size:11px; color:#667; margin:4px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>任意作図</h1>
+  <a href="/" title="天気図ビューアへ戻る">← 天気図ビューア</a>
+  <span style="color:#667;font-size:12px">高度（気圧面・海抜高度）と表示範囲を指定して、1枚の図を作ります（ローカル専用）</span>
+</header>
+<div id="layout">
+  <form id="panel" onsubmit="return false">
+    <fieldset><legend>データ</legend>
+      <label><span>初期値</span><select id="init"></select></label>
+      <label><span>モデル</span><select id="model"></select></label>
+      <label><span>予報時間</span><select id="ft"></select></label>
+    </fieldset>
+    <fieldset><legend>高度</legend>
+      <label><span>種類</span><select id="unit">
+        <option value="hPa">気圧面（hPa）</option><option value="m">海抜高度（m）— WRFのみ</option><option value="sfc">地上（2m・10m・海面）</option></select></label>
+      <label id="levelRow"><span>値</span><input type="number" id="level" value="850" step="any"></label>
+      <div class="quick" id="quick"></div>
+      <div class="help" id="levelHelp"></div>
+    </fieldset>
+    <fieldset><legend>塗り</legend>
+      <label><span>変数</span><select id="fill"></select></label>
+      <label><span>刻み</span><input type="number" id="fill_step" placeholder="自動" step="any" min="0"></label>
+      <label><span>配色</span><select id="cmap">
+        <option value="">既定</option><option>RdYlBu_r</option><option>viridis</option><option>turbo</option><option>YlGnBu</option>
+        <option>Blues</option><option>RdBu_r</option><option>coolwarm</option><option>Spectral_r</option><option>Greys</option><option>PuOr_r</option></select></label>
+    </fieldset>
+    <fieldset><legend>等値線・風</legend>
+      <label><span>等値線</span><select id="contour"></select></label>
+      <label><span>間隔</span><input type="number" id="interval" placeholder="自動" step="any" min="0"></label>
+      <label><span>風</span><select id="wind"><option value="barbs">矢羽</option><option value="arrows">矢印</option><option value="none">なし</option></select></label>
+    </fieldset>
+    <fieldset><legend>表示範囲（緯度経度）</legend>
+      <label><span>プリセット</span><select id="preset"></select></label>
+      <div class="bbox">
+        <label><span>西端 °E</span><input type="number" id="lon0" step="any"></label>
+        <label><span>東端 °E</span><input type="number" id="lon1" step="any"></label>
+        <label><span>南端 °N</span><input type="number" id="lat0" step="any"></label>
+        <label><span>北端 °N</span><input type="number" id="lat1" step="any"></label>
+      </div>
+      <div class="help" id="bboxHelp">WRFは領域内（122.5〜132.5°E・22.1〜29.8°N）だけ。</div>
+    </fieldset>
+    <fieldset><legend>背景地図</legend>
+      <label><span>種類</span><select id="basemap"></select></label>
+      <div class="help">国土地理院タイル（日本周辺が詳細）。日本の外は標高データで補います。</div>
+    </fieldset>
+    <button id="go" class="primary">作図</button>
+    <div id="status"></div>
+  </form>
+  <section>
+    <div id="result"><span style="color:#889">左で条件を決めて「作図」を押してください</span></div>
+    <div id="note"></div>
+    <a id="save" download hidden>この画像を保存</a>
+    <div id="hist"></div>
+  </section>
+</div>
+<script src="custom.js"></script>
+</body>
+</html>
