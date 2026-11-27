@@ -62,7 +62,7 @@ namelist は 実行時間 2時間・出力間隔10分に変更（既定は60分�
 | WRF ビルド | [physics/build_wrf.sh](../physics/build_wrf.sh)（理想実験用）。実事例は `./compile -j 8 em_real` も必要（`./clean` してから） |
 | 静的地形データ（低解像度・約150MB） | [physics/fetch_geog.py](../physics/fetch_geog.py) |
 | GFS の取得（必要な変数だけ・約130MB×9ファイル、約35分） | [physics/fetch_gfs.py](../physics/fetch_gfs.py) |
-| 前処理〜実行 | [physics/run_case.sh](../physics/run_case.sh)、設定は `physics/cases/okinawa_20261126/namelist.{wps,input}` |
+| 前処理〜実行 | [physics/run_case.sh](../physics/run_case.sh)、設定は `physics/cases/okinawa_2026112618/namelist.{wps,input}` |
 | 図 | [physics/plot_okinawa.py](../physics/plot_okinawa.py) |
 
 主な設定: 物理は WSM6（雲物理）・RRTMG（放射）・YSU（境界層）・Kain-Fritsch（積雲）・Noah（地表）。`geog_data_res='lowres'`（5分≒9km）。時間刻み54秒、出力1時間間隔。

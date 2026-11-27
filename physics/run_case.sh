@@ -2,7 +2,7 @@
 # WRF実事例（沖縄周辺9km・GFS初期値・24h）を最初から最後まで実行する。
 # 前提: physics/build_wrf.sh（WRF em_real）と WPS のビルド、data/geog_dl/WPS_GEOG_LOW_RES、
 #       data/gfs/<初期時刻>/ にGFS（physics/fetch_gfs.py で取得）があること。
-# 使い方: プロジェクトルートで  bash physics/run_case.sh physics/cases/okinawa_20261126 2026112618
+# 使い方: プロジェクトルートで  bash physics/run_case.sh physics/cases/okinawa_2026112618 2026112618
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CASE="$ROOT/$1"; INIT="$2"

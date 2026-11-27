@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mac 数値予報ビューア（WRF・AIFS）</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Mac 数値予報ビューア</h1>
+  <label>モデル <select id="modelSel"></select></label>
+  <!-- 2モデル比較: 同じ図種・地域・予報時間を左右に並べる -->
+  <label class="cmpToggle" title="同じ要素を2つのモデルで左右に並べて表示します（C）">
+    <input type="checkbox" id="cmpChk"> 2モデル比較
+  </label>
+  <span id="cmpBox" hidden>
+    <label>右のモデル <select id="model2Sel"></select></label>
+    <button id="btnSwap" title="左右のモデルを入れ替える">⇄ 入替</button>
+  </span>
+  <label>初期値 <select id="initSel"></select></label>
+  <div id="regionBtns" class="seg" role="group" aria-label="地域"></div>
+  <button id="btnRun" title="初期時刻を選んで、データ取得・AIFS・WRFを実行し、図を作ります">計算を実行</button>
+  <button id="btnStats" title="IFSを参照にした検証の数値表">検証表</button>
+  <span id="jobMsg"></span>
+  <span id="updated"></span>
+</header>
+
+<p id="caveat">学習・検証用の参考図です。<b>予報として使わないでください</b>（防災・安全の判断には気象庁など公的機関の公式情報を）。<b>WRFの降水は過大の疑い</b>があります（予報開始後6時間のスピンアップ）。比較の参照にした<b>IFSは真値ではありません</b>。</p>
+
+<nav id="chartTabs" role="tablist" aria-label="図種"></nav>
+
+<main>
+  <div id="controls">
+    <button id="btnFirst" title="最初 (Home)">⏮</button>
+    <button id="btnPrev" title="1コマ戻る (←)">|◀</button>
+    <button id="btnPlay" title="再生/停止 (Space)">再生</button>
+    <button id="btnNext" title="1コマ進む (→)">▶|</button>
+    <button id="btnLast" title="最後 (End)">⏭</button>
+    <input id="ftSlider" type="range" min="0" max="0" step="1" value="0">
+    <select id="speedSel" title="再生速度">
+      <option value="900">遅い</option>
+      <option value="500" selected>標準</option>
+      <option value="250">速い</option>
+    </select>
+    <select id="sizeSel" title="画像の表示サイズ">
+      <option value="fit">画面に収める</option>
+      <option value="wide">幅いっぱい</option>
+      <option value="80">80%</option>
+      <option value="60">60%</option>
+    </select>
+    <a id="dlLink" download title="この画像を保存">保存</a>
+  </div>
+  <div id="timeInfo"></div>
+
+  <div id="views">
+    <div class="view" id="view1">
+      <div class="cap" id="cap1" hidden></div>
+      <div class="viewbox"><img id="img1" alt="天気図"><div id="nod1" class="nodata" hidden>この組み合わせの画像はありません</div></div>
+    </div>
+    <div class="view" id="view2" hidden>
+      <div class="cap" id="cap2"></div>
+      <div class="viewbox"><img id="img2" alt="天気図（右）"><div id="nod2" class="nodata" hidden>この組み合わせの画像はありません</div></div>
+    </div>
+  </div>
+  <section id="thumbs" aria-label="同じ予報時間の図種一覧"></section>
+</main>
+
+<footer>
+  <p class="credit">© 2026 ECMWF（www.ecmwf.int）。IFS・AIFS のオープンデータ（<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>）に基づく。NOAA/NCEP GFS（<a href="https://registry.opendata.aws/noaa-gfs-bdp-pds/" target="_blank" rel="noopener">AWS Open Data</a>）を WRF の初期値・境界値に使用。図は元データ・モデル出力を<b>加工して作図した参考図</b>で、ECMWF・NOAA・UCARの公式な図ではありません（支持・提携もありません）。</p>
+  <details class="legal">
+    <summary>出典・ライセンス・改変・免責（詳細）</summary>
+    <p><b>ECMWF</b>: Copyright © 2026 European Centre for Medium-Range Weather Forecasts (ECMWF). Source: www.ecmwf.int. Licence: CC BY 4.0（<a href="https://apps.ecmwf.int/datasets/licences/general/" target="_blank" rel="noopener">ECMWF Terms of Use</a>）. This service is based on data and products of ECMWF (IFS and AIFS open data, 0.25°). <b>Modification</b>: only selected variables were used and processed (interpolated, derived quantities computed, regridded) into the charts shown here; these charts are not ECMWF products. ECMWF does not accept any liability for any error or omission in the data, their availability, or for any loss or damage arising from their use.</p>
+    <p><b>AIFS（手元）</b>: ECMWF の公式重み <a href="https://huggingface.co/ecmwf/aifs-single-1.0" target="_blank" rel="noopener">AIFS Single v1.0</a>（CC BY 4.0）を anemoi-inference（Apache-2.0）でこの Mac の CPU で実行した結果。引用: Lang et al. (2024), <a href="https://arxiv.org/abs/2406.01465" target="_blank" rel="noopener">arXiv:2406.01465</a>。GPUの非決定性等のため公式の予報と完全には一致しません。</p>
+    <p><b>NOAA GFS</b>: NOAA/NCEP Global Forecast System (GFS) 0.25° was accessed from https://registry.opendata.aws/noaa-gfs-bdp-pds/ and used as WRF initial and boundary conditions. The charts are modified (model output derived from the data), not original NOAA data and not official government materials. Not endorsed by or affiliated with NOAA/NWS. Provided as is.</p>
+    <p><b>WRF</b>: WRF v4.7.1・WPS v4.7.0（NCAR/UCAR。パブリックドメイン。WRF は UCAR の登録商標）を、この Mac でビルドして実行。地形・土地利用は NCAR の WPS_GEOG（低解像度。元データ: MODIS・USGS/GMTED2010 など）。データ自体は再配布していません。</p>
+    <p><b>免責</b>: 図の内容・利用による損害について作成者は責任を負いません。予報は不確実性を含みます。コードは MIT License（<a href="https://github.com/masauehr/mac_wx_lab" target="_blank" rel="noopener">GitHub: masauehr/mac_wx_lab</a>、<a href="https://github.com/masauehr/mac_wx_lab/blob/main/NOTICE.md" target="_blank" rel="noopener">NOTICE</a>）。</p>
+  </details>
+  <p>ショートカット: ←→ 予報時間、↑↓ 図種、Space 再生、C 2モデル比較の切替</p>
+</footer>
+
+<!-- 計算の実行 -->
+<dialog id="runDlg">
+  <h2>計算の実行</h2>
+  <p class="note">初期時刻を選び、必要なデータ取得 → 予報計算 → 作図まで順に行います。<b>済みの段階は自動でスキップ</b>します。計算中は他の重い作業を止めてください（AIFSがメモリ約55GBを使います）。</p>
+  <div class="row">
+    <label>初期時刻（UTC） <select id="runInit"></select></label>
+    <label><input type="checkbox" id="runAifs" checked> AIFS（CPU・約4〜8分）</label>
+    <label><input type="checkbox" id="runWrf" checked> WRF 沖縄周辺9km（GFS取得 約35分＋計算 約10分）</label>
+  </div>
+  <div class="row">
+    <button id="runGo" class="primary">実行</button>
+    <button id="runRender" title="計算済みのデータから図と検証だけ作り直す">作図だけやり直す</button>
+    <button id="runCancel" hidden>中止</button>
+    <span id="runMsg" class="note"></span>
+  </div>
+  <ol id="stageList"></ol>
+  <pre id="logBox"></pre>
+  <div class="row"><button id="runClose">閉じる</button></div>
+</dialog>
+
+<!-- 検証表 -->
+<dialog id="statsDlg">
+  <h2>検証表（IFS を参照）</h2>
+  <p class="note">WRFの格子（境界を除く内部）上で、各モデルの偏差・RMSE・相関を IFS（ECMWF HRES）との比較で出しています。<b>IFS は真値ではない</b>ため、モデル間の差を見る目安です。各セルは「偏差 / RMSE / 相関」。</p>
+  <div id="statsBody"></div>
+  <div class="row"><button id="statsClose">閉じる</button></div>
+</dialog>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

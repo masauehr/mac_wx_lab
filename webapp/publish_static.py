@@ -1,0 +1,82 @@
+"""公開サイト（GitHub Pages・閲覧専用）を作り、gh-pages ブランチへ公開する。
+
+公開するのは作図済みのPNGと索引だけ（元データ・モデルの重み・計算は含まない）。
+使い方:
+  python webapp/publish_static.py --build-only         # webapp/_site を作るだけ（公開しない）
+  python webapp/publish_static.py [--keep 3] [初期時刻...]   # 作って gh-pages へ強制pushする
+gh-pages はデプロイ専用ブランチなので、毎回履歴を作り直して push する（画像で履歴が膨らむのを防ぐ）。
+"""
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from PIL import Image
+
+ROOT = Path(__file__).resolve().parent.parent
+WEB, OUT, SITE = ROOT / "webapp" / "web", ROOT / "webapp" / "output", ROOT / "webapp" / "_site"
+
+
+def quantize(src: Path, dst: Path):
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    im = Image.open(src).convert("RGB").convert("P", palette=Image.ADAPTIVE, colors=256)
+    im.save(dst, optimize=True)
+
+
+def build(inits):
+    if SITE.exists():
+        shutil.rmtree(SITE)  # 生成物（_site）だけを消す
+    SITE.mkdir(parents=True)
+    for f in WEB.iterdir():
+        if f.is_file():
+            shutil.copy(f, SITE / f.name)
+    (SITE / "config.js").write_text("window.STATIC_SITE = true;\n")
+    for f in ("LICENSE", "NOTICE.md"):
+        shutil.copy(ROOT / f, SITE / f)
+    (SITE / ".nojekyll").write_text("")
+    n = 0
+    for init in inits:
+        for p in (OUT / init).rglob("*"):
+            rel = p.relative_to(OUT / init)
+            if p.suffix == ".png":
+                quantize(p, SITE / "data" / init / rel); n += 1
+            elif p.name == "index.json":
+                (SITE / "data" / init).mkdir(parents=True, exist_ok=True)
+                shutil.copy(p, SITE / "data" / init / rel)
+    (SITE / "data").mkdir(exist_ok=True)
+    (SITE / "data" / "runs.json").write_text(json.dumps({"runs": inits}))
+    size = sum(f.stat().st_size for f in SITE.rglob("*") if f.is_file()) / 1e6
+    print(f"サイト生成: {len(inits)}初期時刻・PNG {n}枚・{size:.0f}MB → {SITE}")
+    return size
+
+
+def deploy():
+    remote = subprocess.check_output(["git", "-C", str(ROOT), "remote", "get-url", "origin"], text=True).strip()
+    run = lambda *a: subprocess.run(["git", "-C", str(SITE), *a], check=True)  # noqa: E731
+    run("init", "-q", "-b", "gh-pages")
+    run("add", "-A")
+    run("commit", "-q", "-m", "公開サイトを更新（作図済みの画像と索引のみ）")
+    run("push", "-q", "--force", remote, "gh-pages")
+    print("gh-pages へ公開しました")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("inits", nargs="*")
+    ap.add_argument("--keep", type=int, default=3, help="指定がないとき、新しい順に何件載せるか")
+    ap.add_argument("--build-only", action="store_true")
+    a = ap.parse_args()
+    inits = a.inits or sorted([p.parent.name for p in OUT.glob("*/index.json")], reverse=True)[: a.keep]
+    if not inits:
+        sys.exit("作図済みの結果がありません")
+    size = build(inits)
+    if size > 900:
+        sys.exit("サイトが900MBを超えました（Pagesは1GBが目安）。--keep を減らしてください")
+    if not a.build_only:
+        deploy()
+
+
+if __name__ == "__main__":
+    main()

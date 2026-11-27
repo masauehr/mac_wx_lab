@@ -41,3 +41,8 @@ physics/cases/*/*_DATA*
 physics/cases/*/ozone*
 physics/cases/*/CAM*
 physics/WPS/
+runs/
+webapp/output/
+webapp/logs/
+physics/cases/okinawa_*/
+webapp/_site/
