@@ -1,0 +1,9 @@
+{
+  "id": "ok0327w", "label": "沖縄0327 広域(600km/300km)", "run_hours": 12, "history_interval": 60,
+  "domains": [
+    {"dx": 7500, "n_we": 141, "n_sn": 121, "center": [26.0, 127.5]},
+    {"dx": 1500, "n_we": 401, "n_sn": 401, "center": [26.4, 127.9], "start_h": 6},
+    {"dx": 500,  "n_we": 601, "n_sn": 601, "center": [26.5, 127.9], "start_h": 9}
+  ],
+  "physics": {"cu_physics": [1, 0, 0]}
+}
