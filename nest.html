@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ネスト実験ビューア（WRF）</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  #nestInfo { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-start; margin:10px 0; }
+  #nestInfo svg { background:#fff; border:1px solid var(--line); width:260px; height:auto; flex:none; }
+  #domTable { border-collapse:collapse; background:#fff; font-size:13px; }
+  #domTable th, #domTable td { border:1px solid var(--line); padding:3px 9px; text-align:right; }
+  #domTable th { background:#eef0f4; }
+  #domTable td:first-child, #domTable th:first-child { text-align:left; }
+  #nestViews { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:10px; }
+  #nestViews .viewbox.big { grid-column:1 / -1; }
+  #nestViews .viewbox img { cursor:zoom-in; }
+  #nestViews .viewbox.big img { cursor:zoom-out; }
+  #nestViews .nodata { position:static; min-height:200px; aspect-ratio:950/760; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; }
+  main { max-width:1800px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ネスト実験ビューア</h1>
+  <label>初期値 <select id="initSel"></select></label>
+  <label>実験 <select id="expSel"></select></label>
+  <label id="mapLbl">地図 <select id="mapSel"></select></label>
+  <a href="./" title="通常の数値予報ビューアへ戻る">通常版へ</a>
+</header>
+<p id="caveat">ネスト実験の結果を、領域（d01〜d03）ごとに同じ時刻・同じ図種で並べます。細かいネストは、初期時刻より遅れて開始することがあります（開始前は「未開始」）。<b>予報として使わないでください</b>。WRF の降水は過大の疑いがあります。</p>
+<nav id="chartTabs" role="tablist" aria-label="図種"></nav>
+<main>
+  <div id="nestInfo"></div>
+  <div id="controls">
+    <button id="btnPrev">◀</button><button id="btnPlay">再生</button><button id="btnNext">▶</button>
+    <input type="range" id="ftSlider" min="0" max="0" value="0">
+    <select id="speedSel"><option value="1200">ゆっくり</option><option value="700" selected>ふつう</option><option value="350">はやい</option></select>
+  </div>
+  <div id="timeInfo"></div>
+  <div id="nestViews"></div>
+  <p class="note">図をクリックすると、その領域を大きく表示します（もう一度クリックで戻る）。左の枠図は、設定した中心と大きさからの概略です（実際は格子に合わせて数km動きます）。</p>
+</main>
+<script src="config.js"></script>
+<script src="nest.js"></script>
+</body>
+</html>

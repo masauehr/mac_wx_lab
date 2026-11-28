@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ギャラリー（任意作図）— Mac 数値予報ビューア</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(440px,1fr)); gap:14px; max-width:1500px; margin:0 auto; padding:14px 16px 30px; }
+  figure { margin:0; background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  figure img { width:100%; display:block; cursor:zoom-in; }
+  figcaption { padding:6px 10px; font-size:12px; color:#334; } figcaption .n { color:#b35c00; }
+  #empty { padding:30px; color:#667; text-align:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ギャラリー</h1>
+  <a href="./">← 天気図ビューア</a>
+  <span style="color:#667;font-size:12px">任意作図（平面図・断面図・エマグラム）で作った図のうち、公開に載せたもの</span>
+</header>
+<div id="grid"></div>
+<footer><p class="credit">図は元データ・モデル出力を加工して作図した参考図です（公式予報ではありません）。出典・ライセンスは <a href="NOTICE.md">NOTICE</a> を参照。</p></footer>
+<script src="config.js"></script>
+<script>
+(async () => {
+  const static_ = !!window.STATIC_SITE;
+  let items = [];
+  try { items = await (await fetch(static_ ? "data/gallery.json" : "/api/gallery")).json(); } catch (e) { /* なし */ }
+  const g = document.getElementById("grid");
+  if (!items.length) { g.innerHTML = '<div id="empty">まだ公開された図がありません。</div>'; return; }
+  g.innerHTML = items.map((it) => `<figure><a href="${it.file}" target="_blank" rel="noopener"><img loading="lazy" src="${it.file}" alt=""></a><figcaption>${it.caption}${it.note ? `<div class="n">${it.note}</div>` : ""}</figcaption></figure>`).join("");
+})();
+</script>
+</body>
+</html>
